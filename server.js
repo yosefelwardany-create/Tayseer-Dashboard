@@ -19,6 +19,30 @@ app.use(cors());
 app.use(express.json({ limit: "1mb" }));
 
 // ------------------------------------------------------------------
+// Simple username/password lock (HTTP Basic Auth).
+// Set AUTH_USER and AUTH_PASS as environment variables in Render.
+// If either is unset, auth is skipped (useful for local dev only).
+// ------------------------------------------------------------------
+app.use((req, res, next) => {
+  const { AUTH_USER, AUTH_PASS } = process.env;
+  if (!AUTH_USER || !AUTH_PASS) return next(); // no lock configured
+
+  const header = req.headers.authorization || "";
+  const [scheme, encoded] = header.split(" ");
+
+  if (scheme === "Basic" && encoded) {
+    const decoded = Buffer.from(encoded, "base64").toString("utf-8");
+    const [user, pass] = decoded.split(":");
+    if (user === AUTH_USER && pass === AUTH_PASS) {
+      return next();
+    }
+  }
+
+  res.set("WWW-Authenticate", 'Basic realm="Tayseer Control Room"');
+  res.status(401).send("Authentication required.");
+});
+
+// ------------------------------------------------------------------
 // GET the current shared scenario. Creates a default row if none exists yet.
 // ------------------------------------------------------------------
 app.get("/api/scenario", async (req, res) => {
