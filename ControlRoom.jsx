@@ -22,9 +22,9 @@ const DEFAULTS = {
 
 const PRESETS = {
   "Today (actuals)": { ...DEFAULTS },
-  "Lean ops": { ...DEFAULTS, mgmtFee: 0, gna: 70, badDebt: 20, fines: 0 },
+  "Lean ops": { ...DEFAULTS, gna: 70, badDebt: 20, fines: 0 },
   "Full turnaround": {
-    ...DEFAULTS, mgmtFee: 0, gna: 70, badDebt: 20, fines: 0,
+    ...DEFAULTS, gna: 70, badDebt: 20, fines: 0,
     discounts: 8, promos: 5, advertising: 7, commissions: 2,
     discards: 1.5, returns: 4,
     waves: 2, anchorType: "cosmetics", waveSize: 1000, anchorMargin: 30,
