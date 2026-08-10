@@ -1,5 +1,5 @@
 // Tayseer Trading Company — July 2026 against June 2026
-// Source: Zoho Books exports. Accrual basis, figures in SAR.
+// Accrual basis, figures in SAR.
 //
 //   s    statement section: REV | COGS | OPEX | NOI | NOE
 //   g    reporting group

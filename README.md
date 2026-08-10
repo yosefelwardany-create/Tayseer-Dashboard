@@ -17,7 +17,7 @@ version, and "Save changes" overwrites it for everyone.
 - Negative figures can be typed as `-1000` or `(1000)`.
 - **Underlying** strips every ticked one-off / non-cash line from *both* months.
   Untick anything in **Judgement calls** that Tayseer disputes and the whole page re-bridges.
-- **Reset to actuals** restores the Zoho Books export. It only clears the current
+- **Reset to actuals** restores the figures as booked. It only clears the current
   browser session — the saved version stays until you press Save changes.
 
 To change the baseline permanently, edit `data.js` and redeploy.

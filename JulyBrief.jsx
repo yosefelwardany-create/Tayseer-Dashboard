@@ -312,8 +312,8 @@ export default function JulyBrief() {
             </p>
           </div>
           <div style={{ fontSize: 11.5, letterSpacing: ".08em", textTransform: "uppercase", color: T.inkSoft, lineHeight: 1.9, textAlign: "right" }}>
-            Accrual basis · figures <b style={{ color: T.ink }}>SAR</b><br />
-            Source: Zoho Books export
+            Prepared <b style={{ color: T.ink }}>10 Aug 2026</b><br />
+            Accrual basis · figures <b style={{ color: T.ink }}>SAR</b>
           </div>
         </header>
 
@@ -637,7 +637,7 @@ export default function JulyBrief() {
           {/* Notes */}
           <Panel title="Notes and caveats" tint={T.inkSoft} span>
             <div style={{ fontSize: 13, color: T.inkSoft, lineHeight: 1.65, display: "grid", gap: 10, maxWidth: 860 }}>
-              <p style={{ margin: 0 }}><b style={{ color: T.ink }}>Cross-check.</b> The July net loss of SAR 295,646 on the original export agrees exactly to the net income line on the July cash flow statement. The two exports are consistent.</p>
+              <p style={{ margin: 0 }}><b style={{ color: T.ink }}>Cross-check.</b> The July net loss of SAR 295,646 as booked agrees exactly to the net income line on the July cash flow statement. The two statements are consistent.</p>
               <p style={{ margin: 0 }}><b style={{ color: T.ink }}>Advertising.</b> SAR 1,040,763 in June against SAR 16,137 in July looks like a campaign accrual or annual booking rather than monthly spend. If it covers a full year, roughly SAR 87k a month belongs in the run rate.</p>
               <p style={{ margin: 0 }}><b style={{ color: T.ink }}>Listing fees.</b> +53,968 in June and −53,968 in July is a straight reversal. July is flattered by that credit.</p>
               <p style={{ margin: 0 }}><b style={{ color: T.ink }}>Management fees.</b> SAR 310,592 hit June and nothing in July. If the billing is quarterly, July is understated and the underlying gap is wider than shown.</p>
@@ -647,7 +647,7 @@ export default function JulyBrief() {
               <p style={{ margin: 0 }}><b style={{ color: T.ink }}>What is missing.</b> No budget and no prior-year comparative were provided, and there is no volume, price or customer mix data — so the revenue movement cannot yet be split into rate against volume.</p>
               {dirty && (
                 <p style={{ margin: 0, color: T.blue }}>
-                  <b>Figures edited.</b> Some numbers on this page no longer match the Zoho Books export. Reset to actuals before circulating.
+                  <b>Figures edited.</b> Some numbers on this page no longer match the underlying accounts. Reset to actuals before circulating.
                 </p>
               )}
             </div>
