@@ -16,7 +16,7 @@ const pool = new Pool({
 
 const app = express();
 app.use(cors());
-app.use(express.json({ limit: "1mb" }));
+app.use(express.json({ limit: "4mb" })); // the July brief posts ~110 account lines
 
 // ------------------------------------------------------------------
 // Simple username/password lock (HTTP Basic Auth).
@@ -32,62 +32,68 @@ app.use((req, res, next) => {
 
   if (scheme === "Basic" && encoded) {
     const decoded = Buffer.from(encoded, "base64").toString("utf-8");
-    const [user, pass] = decoded.split(":");
-    if (user === AUTH_USER && pass === AUTH_PASS) {
-      return next();
-    }
+    const i = decoded.indexOf(":");
+    const user = decoded.slice(0, i);
+    const pass = decoded.slice(i + 1);
+    if (user === AUTH_USER && pass === AUTH_PASS) return next();
   }
 
-  res.set("WWW-Authenticate", 'Basic realm="Tayseer Control Room"');
+  res.set("WWW-Authenticate", 'Basic realm="Tayseer"');
   res.status(401).send("Authentication required.");
 });
 
 // ------------------------------------------------------------------
-// GET the current shared scenario. Creates a default row if none exists yet.
+// Named scenarios.
+//   /api/scenario            -> the control room  (name = "default")
+//   /api/scenario/july2026   -> the July brief
+// Any name works; each gets its own row.
 // ------------------------------------------------------------------
-app.get("/api/scenario", async (req, res) => {
+const nameOf = (req) => {
+  const raw = req.params.name || "default";
+  return /^[a-z0-9_-]{1,64}$/i.test(raw) ? raw : null;
+};
+
+async function readScenario(req, res) {
+  const name = nameOf(req);
+  if (!name) return res.status(400).json({ error: "Invalid scenario name" });
+
   try {
     const result = await pool.query(
       "SELECT data, updated_at FROM scenarios WHERE name = $1 LIMIT 1",
-      ["default"]
+      [name]
     );
-
-    if (result.rows.length === 0) {
-      return res.json({ data: null, updated_at: null });
-    }
-
+    if (result.rows.length === 0) return res.json({ data: null, updated_at: null });
     res.json(result.rows[0]);
   } catch (err) {
     console.error("GET /api/scenario error:", err);
     res.status(500).json({ error: "Failed to load scenario" });
   }
-});
+}
 
-// ------------------------------------------------------------------
-// POST (save) the current shared scenario. Upserts the single "default" row.
-// ------------------------------------------------------------------
-app.post("/api/scenario", async (req, res) => {
+async function writeScenario(req, res) {
+  const name = nameOf(req);
+  if (!name) return res.status(400).json({ error: "Invalid scenario name" });
+
+  const data = req.body;
+  if (!data || typeof data !== "object") {
+    return res.status(400).json({ error: "Invalid data payload" });
+  }
+
   try {
-    const data = req.body;
-
-    if (!data || typeof data !== "object") {
-      return res.status(400).json({ error: "Invalid data payload" });
-    }
-
     const existing = await pool.query(
       "SELECT id FROM scenarios WHERE name = $1 LIMIT 1",
-      ["default"]
+      [name]
     );
 
     if (existing.rows.length === 0) {
       await pool.query(
         "INSERT INTO scenarios (name, data, updated_at) VALUES ($1, $2, now())",
-        ["default", data]
+        [name, data]
       );
     } else {
       await pool.query(
         "UPDATE scenarios SET data = $1, updated_at = now() WHERE name = $2",
-        [data, "default"]
+        [data, name]
       );
     }
 
@@ -96,7 +102,12 @@ app.post("/api/scenario", async (req, res) => {
     console.error("POST /api/scenario error:", err);
     res.status(500).json({ error: "Failed to save scenario" });
   }
-});
+}
+
+app.get("/api/scenario", readScenario);
+app.post("/api/scenario", writeScenario);
+app.get("/api/scenario/:name", readScenario);
+app.post("/api/scenario/:name", writeScenario);
 
 // ------------------------------------------------------------------
 // Serve the built frontend (after `npm run build`)
