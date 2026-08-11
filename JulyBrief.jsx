@@ -12,6 +12,18 @@ const T = {
 
 const SCENARIO = "july2026"; // the row this page reads/writes in Neon
 
+// The months held in data.js. Add a key here when a new month is appended.
+const MONTHS = [
+  { key: "may", label: "May 2026", short: "May" },
+  { key: "jun", label: "Jun 2026", short: "Jun" },
+  { key: "jul", label: "Jul 2026", short: "Jul" },
+];
+const labelOf = (k) => (MONTHS.find((m) => m.key === k) || {}).label || k;
+
+// May comes from the audited pack, June and July from the ledger export.
+// Any comparison spanning the two carries a basis difference — flag it.
+const SPLIT_BASIS = (a, b) => (a === "may") !== (b === "may");
+
 // ------------------------------------------------------------------
 // Formatting
 // ------------------------------------------------------------------
@@ -106,9 +118,9 @@ function Money({ value, onChange, edited, invert }) {
   );
 }
 
-function Row({ label, jun, jul, share, invert, weight, top, muted, flag, onClick, open, children }) {
-  const d = jul - jun;
-  const p = jun ? d / Math.abs(jun) : 0;
+function Row({ label, a, b, share, invert, weight, top, muted, flag, onClick, open, children }) {
+  const d = b - a;
+  const p = a ? d / Math.abs(a) : 0;
   return (
     <tr
       onClick={onClick}
@@ -127,12 +139,12 @@ function Row({ label, jun, jul, share, invert, weight, top, muted, flag, onClick
       </td>
       {children || (
         <>
-          <td style={{ textAlign: "right", fontSize: 13, fontVariantNumeric: "tabular-nums", padding: "6px 8px" }}>{fmt(jun)}</td>
-          <td style={{ textAlign: "right", fontSize: 13, fontVariantNumeric: "tabular-nums", padding: "6px 8px" }}>{fmt(jul)}</td>
+          <td style={{ textAlign: "right", fontSize: 13, fontVariantNumeric: "tabular-nums", padding: "6px 8px" }}>{fmt(a)}</td>
+          <td style={{ textAlign: "right", fontSize: 13, fontVariantNumeric: "tabular-nums", padding: "6px 8px" }}>{fmt(b)}</td>
         </>
       )}
       <td style={{ textAlign: "right", fontSize: 13, fontWeight: 600, fontVariantNumeric: "tabular-nums", padding: "6px 8px", color: invert ? tone(-d) : tone(d) }}>{fmt(d)}</td>
-      <td style={{ textAlign: "right", fontSize: 12.5, color: T.inkSoft, fontVariantNumeric: "tabular-nums", padding: "6px 8px" }}>{jun ? pct(p) : "—"}</td>
+      <td style={{ textAlign: "right", fontSize: 12.5, color: T.inkSoft, fontVariantNumeric: "tabular-nums", padding: "6px 8px" }}>{a ? pct(p) : "—"}</td>
       <td style={{ textAlign: "right", fontSize: 12.5, color: T.inkSoft, fontVariantNumeric: "tabular-nums", padding: "6px 0 6px 8px" }}>
         {share !== undefined ? (share * 100).toFixed(1) + "%" : ""}
       </td>
@@ -168,6 +180,8 @@ function RiyalStrip({ cogs, opex, kept }) {
 // ------------------------------------------------------------------
 export default function JulyBrief() {
   const [rows, setRows] = useState(() => BASELINE.map((r) => ({ ...r })));
+  const [mA, setMA] = useState("jun"); // base month
+  const [mB, setMB] = useState("jul"); // month being compared
   const [basis, setBasis] = useState("rep"); // rep | norm
   const [openGroups, setOpenGroups] = useState({});
   const [loading, setLoading] = useState(true);
@@ -220,16 +234,16 @@ export default function JulyBrief() {
   }, [rows]);
 
   const dirty = useMemo(
-    () => rows.some((r, i) => Math.round(r.jun) !== Math.round(BASELINE[i].jun) || Math.round(r.jul) !== Math.round(BASELINE[i].jul)),
+    () => rows.some((r, i) => MONTHS.some((m) => Math.round(r[m.key]) !== Math.round(BASELINE[i][m.key]))),
     [rows]
   );
 
   // Both bases, both months — the whole page reads off these four
   const { rJ, rL, nJ, nL, J, L } = useMemo(() => {
-    const rJ = model(rows, "jun", "rep"), rL = model(rows, "jul", "rep");
-    const nJ = model(rows, "jun", "norm"), nL = model(rows, "jul", "norm");
+    const rJ = model(rows, mA, "rep"), rL = model(rows, mB, "rep");
+    const nJ = model(rows, mA, "norm"), nL = model(rows, mB, "norm");
     return { rJ, rL, nJ, nL, J: basis === "rep" ? rJ : nJ, L: basis === "rep" ? rL : nL };
-  }, [rows, basis]);
+  }, [rows, basis, mA, mB]);
 
   const repGain = rL.profit - rJ.profit;
   const normGain = nL.profit - nJ.profit;
@@ -240,8 +254,8 @@ export default function JulyBrief() {
   const flagged = rows.filter((r) => r.note);
 
   const swings = useMemo(
-    () => [...rows].sort((a, b) => Math.abs(b.jul - b.jun) - Math.abs(a.jul - a.jun)).slice(0, 12),
-    [rows]
+    () => [...rows].sort((x, y) => Math.abs(y[mB] - y[mA]) - Math.abs(x[mB] - x[mA])).slice(0, 12),
+    [rows, mA, mB]
   );
 
   const opexSorted = useMemo(
@@ -265,6 +279,14 @@ export default function JulyBrief() {
       background: active ? T.ink : T.card, color: active ? T.paper : T.ink,
     }}>{children}</button>
   );
+
+  const shortA = (MONTHS.find((m) => m.key === mA) || {}).short || mA;
+  const shortB = (MONTHS.find((m) => m.key === mB) || {}).short || mB;
+  const selectStyle = {
+    padding: "7px 11px", borderRadius: 8, fontSize: 13.5, fontWeight: 600,
+    border: `1.5px solid ${T.line}`, background: T.paper, color: T.ink,
+    fontFamily: "inherit", cursor: "pointer",
+  };
 
   if (loading) {
     return (
@@ -301,7 +323,7 @@ export default function JulyBrief() {
         <header style={{ borderBottom: `2px solid ${T.ink}`, paddingBottom: 14, marginBottom: 16, display: "flex", justifyContent: "space-between", gap: 20, flexWrap: "wrap", alignItems: "flex-end" }}>
           <div>
             <div style={{ fontSize: 11.5, letterSpacing: "0.14em", textTransform: "uppercase", color: T.sand, fontWeight: 600 }}>
-              Tayseer Trading · July 2026 against June 2026
+              Tayseer Trading · {labelOf(mB)} against {labelOf(mA)}
             </div>
             <h1 style={{ fontFamily: "'Fraunces', serif", fontSize: 32, fontWeight: 700, margin: "6px 0 0", lineHeight: 1.05 }}>
               The month, line by line<span style={{ color: T.sand }}>.</span>
@@ -316,6 +338,33 @@ export default function JulyBrief() {
             Accrual basis · figures <b style={{ color: T.ink }}>SAR</b>
           </div>
         </header>
+
+        {/* Month picker */}
+        <div style={{
+          display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center", marginBottom: 12,
+          background: T.card, border: `1px solid ${T.line}`, borderRadius: 10, padding: "10px 14px",
+        }}>
+          <span style={{ fontSize: 11, letterSpacing: ".07em", textTransform: "uppercase", color: T.inkSoft, fontWeight: 600 }}>Compare</span>
+          <select value={mA} onChange={(e) => setMA(e.target.value)} style={selectStyle}>
+            {MONTHS.map((m) => <option key={m.key} value={m.key}>{m.label}</option>)}
+          </select>
+          <span style={{ fontSize: 12.5, color: T.inkSoft }}>against</span>
+          <select value={mB} onChange={(e) => setMB(e.target.value)} style={selectStyle}>
+            {MONTHS.map((m) => <option key={m.key} value={m.key}>{m.label}</option>)}
+          </select>
+          <button onClick={() => { setMA(mB); setMB(mA); }} title="Swap the two months" style={{
+            padding: "7px 13px", borderRadius: 999, fontSize: 13, fontWeight: 600,
+            border: `1.5px solid ${T.line}`, background: T.paper, color: T.ink,
+          }}>⇄ Swap</button>
+          {mA === mB && (
+            <span style={{ fontSize: 12.5, color: T.loss, fontWeight: 600 }}>Same month on both sides — pick two different months.</span>
+          )}
+          {mA !== mB && SPLIT_BASIS(mA, mB) && (
+            <span style={{ fontSize: 12.5, color: T.sand, fontWeight: 600 }}>
+              Mixed sources: May is the audited pack, June and July the ledger export. See the notes.
+            </span>
+          )}
+        </div>
 
         {/* Controls */}
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 16, alignItems: "center" }}>
@@ -346,10 +395,10 @@ export default function JulyBrief() {
         {/* Sticky results */}
         <div style={{ position: "sticky", top: 0, zIndex: 5, background: T.paper, paddingTop: 8, paddingBottom: 12, borderBottom: `1px solid ${T.line}`, marginBottom: 20 }}>
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 12 }}>
-            {kpi("Net revenue", fmt(L.net), pct((L.net - J.net) / Math.abs(J.net)) + " vs Jun")}
-            {kpi("Gross margin", (L.gm * 100).toFixed(1) + "%", ((L.gm - J.gm) * 100).toFixed(1) + " pts vs Jun")}
-            {kpi("Operating expenses", fmt(L.opex), pct((L.opex - J.opex) / Math.abs(J.opex)) + " vs Jun", T.sand)}
-            {kpi("Net result", fmt(L.profit), fmt(L.profit - J.profit) + " vs Jun", tone(L.profit))}
+            {kpi("Net revenue", fmt(L.net), pct((L.net - J.net) / Math.abs(J.net || 1)) + " vs " + shortA)}
+            {kpi("Gross margin", (L.gm * 100).toFixed(1) + "%", ((L.gm - J.gm) * 100).toFixed(1) + " pts vs " + shortA)}
+            {kpi("Operating expenses", fmt(L.opex), pct((L.opex - J.opex) / Math.abs(J.opex || 1)) + " vs " + shortA, T.sand)}
+            {kpi("Net result", fmt(L.profit), fmt(L.profit - J.profit) + " vs " + shortA, tone(L.profit))}
             {kpi("Annualised", (L.profit * 12 / 1e6).toFixed(2) + "M", "at this run rate", tone(L.profit))}
           </div>
           <RiyalStrip
@@ -361,10 +410,10 @@ export default function JulyBrief() {
 
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", gap: 14 }}>
           {/* Reported vs underlying */}
-          <Panel title="Two versions of the same month" tint={T.blue} hint="read this before the headline">
+          <Panel title={`Two versions of ${labelOf(mB)}`} tint={T.blue} hint="read this before the headline">
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
               {[
-                { lab: "As reported", v: rL.profit, gain: repGain, base: rJ.profit, cap: "What the ledger says July lost." },
+                { lab: "As reported", v: rL.profit, gain: repGain, base: rJ.profit, cap: `The result for ${labelOf(mB)} exactly as booked.` },
                 { lab: "Underlying", v: nL.profit, gain: normGain, base: nJ.profit, cap: "One-off and non-cash charges stripped from both months." },
               ].map((x) => (
                 <div key={x.lab}>
@@ -377,7 +426,7 @@ export default function JulyBrief() {
                     display: "inline-block", marginTop: 8, padding: "3px 10px", borderRadius: 999, fontSize: 11.5, fontWeight: 600,
                     background: "rgba(29,158,117,0.12)", color: T.profit,
                   }}>
-                    Loss cut {Math.round((x.gain / Math.abs(x.base || 1)) * 100)}% against June
+                    {x.gain >= 0 ? "Loss cut" : "Loss widened"} {Math.abs(Math.round((x.gain / Math.abs(x.base || 1)) * 100))}% against {shortA}
                   </div>
                 </div>
               ))}
@@ -386,7 +435,7 @@ export default function JulyBrief() {
             <div style={{ marginTop: 18, paddingTop: 14, borderTop: `1px solid ${T.line}`, display: "grid", gap: 7 }}>
               {[
                 { l: "Reported improvement", v: repGain, c: T.profit },
-                { l: "June one-offs rolling off", v: -oneoffSwing, c: T.sand },
+                { l: `${shortA} one-offs rolling off`, v: -oneoffSwing, c: T.sand },
                 { l: "Underlying improvement", v: normGain, c: T.profit },
               ].map((b) => (
                 <div key={b.l} style={{ display: "grid", gridTemplateColumns: "1fr 2fr 70px", gap: 8, alignItems: "center" }}>
@@ -399,9 +448,10 @@ export default function JulyBrief() {
               ))}
             </div>
             <p style={{ fontSize: 12.5, color: T.inkSoft, lineHeight: 1.6, margin: "12px 0 0" }}>
-              Of the SAR {fmt(repGain)} the loss narrowed by, SAR {fmt(oneoffSwing)} is June's one-off and non-cash charges
-              simply not repeating. Genuine month-on-month improvement is SAR {fmt(normGain)}. At this run rate Tayseer is
-              losing roughly SAR {fmt(-nL.profit)} a month before any of it is explained by trading.
+              Of the SAR {fmt(Math.abs(repGain))} the reported result {repGain >= 0 ? "improved" : "worsened"} by, SAR{" "}
+              {fmt(Math.abs(oneoffSwing))} is one-off and non-cash charges not repeating between the two months. The
+              underlying movement is SAR {fmt(normGain)}. On the underlying basis {labelOf(mB)} loses roughly SAR{" "}
+              {fmt(-nL.profit)} before any of it is explained by trading.
             </p>
           </Panel>
 
@@ -415,8 +465,8 @@ export default function JulyBrief() {
               {pct((Math.abs(rL.ret) - Math.abs(rJ.ret)) / Math.abs(rJ.ret || 1), 0)} and swallowed it — net revenue finished{" "}
               <b style={{ color: tone(rL.net - rJ.net) }}>{pct((rL.net - rJ.net) / Math.abs(rJ.net))}</b>.
             </div>
-            {[["Jun 2026", rJ.retPct, "rgba(26,36,33,0.25)"], ["Jul 2026", rL.retPct, T.loss]].map(([lab, v, c]) => (
-              <div key={lab} style={{ display: "grid", gridTemplateColumns: "70px 1fr 52px", gap: 8, alignItems: "center", marginBottom: 6 }}>
+            {[["a", labelOf(mA), rJ.retPct, "rgba(26,36,33,0.25)"], ["b", labelOf(mB), rL.retPct, T.loss]].map(([k, lab, v, c]) => (
+              <div key={k} style={{ display: "grid", gridTemplateColumns: "70px 1fr 52px", gap: 8, alignItems: "center", marginBottom: 6 }}>
                 <span style={{ fontSize: 12.5, color: T.inkSoft }}>{lab}</span>
                 <div style={{ height: 14, background: "rgba(26,36,33,0.05)", borderRadius: 3, position: "relative" }}>
                   <div style={{ position: "absolute", inset: "0 auto 0 0", width: `${Math.min((v / Math.max(rJ.retPct, rL.retPct, 0.0001)) * 100, 100)}%`, background: c, borderRadius: 3 }} />
@@ -459,8 +509,8 @@ export default function JulyBrief() {
           {/* Opex by group */}
           <Panel title="Operating expenses by group" tint={T.sand} hint="sorted by size of movement">
             <div style={{ display: "flex", gap: 14, fontSize: 11.5, color: T.inkSoft, marginBottom: 10 }}>
-              <span><i style={{ display: "inline-block", width: 9, height: 9, background: "rgba(26,36,33,0.25)", borderRadius: 2, marginRight: 5 }} />June</span>
-              <span><i style={{ display: "inline-block", width: 9, height: 9, background: T.ink, borderRadius: 2, marginRight: 5 }} />July</span>
+              <span><i style={{ display: "inline-block", width: 9, height: 9, background: "rgba(26,36,33,0.25)", borderRadius: 2, marginRight: 5 }} />{labelOf(mA)}</span>
+              <span><i style={{ display: "inline-block", width: 9, height: 9, background: T.ink, borderRadius: 2, marginRight: 5 }} />{labelOf(mB)}</span>
             </div>
             <div style={{ display: "grid", gap: 9 }}>
               {opexSorted.map((g) => {
@@ -499,15 +549,15 @@ export default function JulyBrief() {
                     <b>{r.n}</b>
                     <span style={{ display: "block", fontSize: 12, color: T.inkSoft }}>{r.note}</span>
                   </span>
-                  <span style={{ textAlign: "right", fontSize: 13, fontVariantNumeric: "tabular-nums" }}>{fmt(r.jun)}</span>
-                  <span style={{ textAlign: "right", fontSize: 13, fontVariantNumeric: "tabular-nums" }}>{fmt(r.jul)}</span>
+                  <span style={{ textAlign: "right", fontSize: 13, fontVariantNumeric: "tabular-nums" }}>{fmt(r[mA])}</span>
+                  <span style={{ textAlign: "right", fontSize: 13, fontVariantNumeric: "tabular-nums" }}>{fmt(r[mB])}</span>
                 </label>
               ))}
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "22px 1fr 110px 110px", gap: 8, marginTop: 8, paddingTop: 10, borderTop: `1.5px solid ${T.ink}`, fontSize: 13, fontWeight: 600 }}>
               <span /><span>Total stripped from each period</span>
-              <span style={{ textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{fmt(oneoffTotal("jun"))}</span>
-              <span style={{ textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{fmt(oneoffTotal("jul"))}</span>
+              <span style={{ textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{fmt(oneoffTotal(mA))}</span>
+              <span style={{ textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{fmt(oneoffTotal(mB))}</span>
             </div>
           </Panel>
 
@@ -518,15 +568,15 @@ export default function JulyBrief() {
                 <thead>
                   <tr>
                     <th style={{ minWidth: 240 }}>Account</th>
-                    <th>Jun 2026</th><th>Jul 2026</th><th>Change</th><th>Change %</th><th>% of net rev</th>
+                    <th>{labelOf(mA)}</th><th>{labelOf(mB)}</th><th>Change</th><th>Change %</th><th>% of net rev</th>
                   </tr>
                 </thead>
                 <tbody>
-                  <Row label="Gross sales revenue" jun={J.rev} jul={L.rev} share={L.net ? L.rev / L.net : 0} />
-                  <Row label="Sales returns" jun={J.ret} jul={L.ret} share={L.net ? L.ret / L.net : 0} />
-                  <Row label="Net revenue" jun={J.net} jul={L.net} share={1} weight={600} top />
-                  <Row label="Cost of goods sold" jun={J.cogs} jul={L.cogs} share={L.net ? L.cogs / L.net : 0} invert />
-                  <Row label="Gross profit" jun={J.gp} jul={L.gp} share={L.net ? L.gp / L.net : 0} weight={600} top />
+                  <Row label="Gross sales revenue" a={J.rev} b={L.rev} share={L.net ? L.rev / L.net : 0} />
+                  <Row label="Sales returns" a={J.ret} b={L.ret} share={L.net ? L.ret / L.net : 0} />
+                  <Row label="Net revenue" a={J.net} b={L.net} share={1} weight={600} top />
+                  <Row label="Cost of goods sold" a={J.cogs} b={L.cogs} share={L.net ? L.cogs / L.net : 0} invert />
+                  <Row label="Gross profit" a={J.gp} b={L.gp} share={L.net ? L.gp / L.net : 0} weight={600} top />
 
                   <tr><td colSpan={6} style={{ padding: "16px 0 4px", fontSize: 11, letterSpacing: ".07em", textTransform: "uppercase", color: T.inkSoft, fontWeight: 600 }}>Operating expenses</td></tr>
 
@@ -534,8 +584,8 @@ export default function JulyBrief() {
                     <Fragment key={g}>
                       <Row
                         label={g}
-                        jun={J.groups[g]}
-                        jul={L.groups[g]}
+                        a={J.groups[g]}
+                        b={L.groups[g]}
                         share={L.net ? L.groups[g] / L.net : 0}
                         invert
                         weight={600}
@@ -549,16 +599,16 @@ export default function JulyBrief() {
                             <Row
                               key={r.c}
                               label={<span style={{ paddingLeft: 16, color: shown ? "#9AA49D" : T.inkSoft, textDecoration: shown ? "line-through" : "none" }}>{r.n}</span>}
-                              jun={shown ? 0 : r.jun}
-                              jul={shown ? 0 : r.jul}
+                              a={shown ? 0 : r[mA]}
+                              b={shown ? 0 : r[mB]}
                               invert
                               flag={r.o}
                             >
                               <td style={{ padding: "2px 4px", width: 110 }}>
-                                <Money value={r.jun} onChange={(v) => edit(r.c, "jun", v)} edited={isEdited(r.c, "jun")} invert />
+                                <Money value={r[mA]} onChange={(v) => edit(r.c, mA, v)} edited={isEdited(r.c, mA)} invert />
                               </td>
                               <td style={{ padding: "2px 4px", width: 110 }}>
-                                <Money value={r.jul} onChange={(v) => edit(r.c, "jul", v)} edited={isEdited(r.c, "jul")} invert />
+                                <Money value={r[mB]} onChange={(v) => edit(r.c, mB, v)} edited={isEdited(r.c, mB)} invert />
                               </td>
                             </Row>
                           );
@@ -566,12 +616,12 @@ export default function JulyBrief() {
                     </Fragment>
                   ))}
 
-                  <Row label="Total operating expenses" jun={J.opex} jul={L.opex} share={L.net ? L.opex / L.net : 0} invert weight={600} top />
-                  <Row label="Operating result" jun={J.op} jul={L.op} share={L.net ? L.op / L.net : 0} weight={600} top />
-                  <Row label="Non-operating income" jun={J.noi} jul={L.noi} share={L.net ? L.noi / L.net : 0} />
-                  <Row label="Non-operating expense" jun={J.noe} jul={L.noe} share={L.net ? L.noe / L.net : 0} invert />
-                  <Row label="Net result" jun={J.profit} jul={L.profit} share={L.net ? L.profit / L.net : 0} weight={700} top />
-                  <Row label="Memo — result before depreciation" jun={J.profit + J.dep} jul={L.profit + L.dep} muted />
+                  <Row label="Total operating expenses" a={J.opex} b={L.opex} share={L.net ? L.opex / L.net : 0} invert weight={600} top />
+                  <Row label="Operating result" a={J.op} b={L.op} share={L.net ? L.op / L.net : 0} weight={600} top />
+                  <Row label="Non-operating income" a={J.noi} b={L.noi} share={L.net ? L.noi / L.net : 0} />
+                  <Row label="Non-operating expense" a={J.noe} b={L.noe} share={L.net ? L.noe / L.net : 0} invert />
+                  <Row label="Net result" a={J.profit} b={L.profit} share={L.net ? L.profit / L.net : 0} weight={700} top />
+                  <Row label="Memo — result before depreciation" a={J.profit + J.dep} b={L.profit + L.dep} muted />
                 </tbody>
               </table>
             </div>
@@ -584,12 +634,12 @@ export default function JulyBrief() {
               <table>
                 <tbody>
                   {rows.filter((r) => r.s === "REV" || r.s === "COGS" || r.s === "NOI" || r.s === "NOE").map((r) => (
-                    <Row key={r.c} label={r.n} jun={r.jun} jul={r.jul} invert={r.s === "COGS" || r.s === "NOE"} flag={r.o}>
+                    <Row key={r.c} label={r.n} a={r[mA]} b={r[mB]} invert={r.s === "COGS" || r.s === "NOE"} flag={r.o}>
                       <td style={{ padding: "2px 4px", width: 110 }}>
-                        <Money value={r.jun} onChange={(v) => edit(r.c, "jun", v)} edited={isEdited(r.c, "jun")} />
+                        <Money value={r[mA]} onChange={(v) => edit(r.c, mA, v)} edited={isEdited(r.c, mA)} />
                       </td>
                       <td style={{ padding: "2px 4px", width: 110 }}>
-                        <Money value={r.jul} onChange={(v) => edit(r.c, "jul", v)} edited={isEdited(r.c, "jul")} />
+                        <Money value={r[mB]} onChange={(v) => edit(r.c, mB, v)} edited={isEdited(r.c, mB)} />
                       </td>
                     </Row>
                   ))}
@@ -606,12 +656,12 @@ export default function JulyBrief() {
                   <tr>
                     <th style={{ minWidth: 220 }}>Account</th>
                     <th style={{ textAlign: "left" }}>Group</th>
-                    <th>Jun 2026</th><th>Jul 2026</th><th>Swing</th><th>Effect</th>
+                    <th>{labelOf(mA)}</th><th>{labelOf(mB)}</th><th>Swing</th><th>Effect</th>
                   </tr>
                 </thead>
                 <tbody>
                   {swings.map((r) => {
-                    const d = r.jul - r.jun;
+                    const d = r[mB] - r[mA];
                     const good = r.s === "COGS" || r.s === "OPEX" || r.s === "NOE" ? d < 0 : d > 0;
                     return (
                       <tr key={r.c}>
@@ -620,8 +670,8 @@ export default function JulyBrief() {
                           {r.o && <span style={{ display: "inline-block", width: 6, height: 6, borderRadius: 99, background: T.sand, marginLeft: 6, verticalAlign: "middle" }} />}
                         </td>
                         <td style={{ fontSize: 12, color: T.inkSoft, padding: "6px 8px" }}>{r.g}</td>
-                        <td style={{ textAlign: "right", fontSize: 13, fontVariantNumeric: "tabular-nums", padding: "6px 8px" }}>{fmt(r.jun)}</td>
-                        <td style={{ textAlign: "right", fontSize: 13, fontVariantNumeric: "tabular-nums", padding: "6px 8px" }}>{fmt(r.jul)}</td>
+                        <td style={{ textAlign: "right", fontSize: 13, fontVariantNumeric: "tabular-nums", padding: "6px 8px" }}>{fmt(r[mA])}</td>
+                        <td style={{ textAlign: "right", fontSize: 13, fontVariantNumeric: "tabular-nums", padding: "6px 8px" }}>{fmt(r[mB])}</td>
                         <td style={{ textAlign: "right", fontSize: 13, fontWeight: 600, fontVariantNumeric: "tabular-nums", padding: "6px 8px" }}>{fmt(d)}</td>
                         <td style={{ textAlign: "right", fontSize: 12.5, fontWeight: 600, padding: "6px 0 6px 8px", color: good ? T.profit : T.loss }}>
                           {good ? "Favourable" : "Adverse"}
@@ -637,13 +687,15 @@ export default function JulyBrief() {
           {/* Notes */}
           <Panel title="Notes and caveats" tint={T.inkSoft} span>
             <div style={{ fontSize: 13, color: T.inkSoft, lineHeight: 1.65, display: "grid", gap: 10, maxWidth: 860 }}>
+              <p style={{ margin: 0 }}><b style={{ color: T.ink }}>Where the figures come from.</b> May 2026 is taken from the audited analysis pack and ties to that pack&rsquo;s own subtotals to the riyal. June and July come from the later ledger export. The two do not agree on June: 16 accounts differ, and in total the ledger shows June SAR 189,706 worse than the audited pack — the largest single differences being the near-expiry inventory allowance (321,891 against 200,000), the Nongshim liquidation discount (46,292 against nil) and product listing fees (53,968 against 17,968). A June-to-July comparison is clean, since both sides come from the same export. A May-to-June comparison carries that basis difference inside it. Reconcile the two Junes before either month is presented externally.</p>
               <p style={{ margin: 0 }}><b style={{ color: T.ink }}>Cross-check.</b> The July net loss of SAR 295,646 as booked agrees exactly to the net income line on the July cash flow statement. The two statements are consistent.</p>
-              <p style={{ margin: 0 }}><b style={{ color: T.ink }}>Advertising.</b> SAR 1,040,763 in June against SAR 16,137 in July looks like a campaign accrual or annual booking rather than monthly spend. If it covers a full year, roughly SAR 87k a month belongs in the run rate.</p>
-              <p style={{ margin: 0 }}><b style={{ color: T.ink }}>Listing fees.</b> +53,968 in June and −53,968 in July is a straight reversal. July is flattered by that credit.</p>
-              <p style={{ margin: 0 }}><b style={{ color: T.ink }}>Management fees.</b> SAR 310,592 hit June and nothing in July. If the billing is quarterly, July is understated and the underlying gap is wider than shown.</p>
+              <p style={{ margin: 0 }}><b style={{ color: T.ink }}>Advertising (June/July).</b> SAR 1,040,763 in June against SAR 16,137 in July looks like a campaign accrual or annual booking rather than monthly spend. If it covers a full year, roughly SAR 87k a month belongs in the run rate.</p>
+              <p style={{ margin: 0 }}><b style={{ color: T.ink }}>Listing fees (June/July).</b> +53,968 in June and −53,968 in July is a straight reversal. July is flattered by that credit.</p>
+              <p style={{ margin: 0 }}><b style={{ color: T.ink }}>Management fees (June/July).</b> SAR 310,592 hit June and nothing in July. If the billing is quarterly, July is understated and the underlying gap is wider than shown.</p>
               <p style={{ margin: 0 }}><b style={{ color: T.ink }}>Balance sheet flags.</b> Several balances sit the wrong way round: advance payments to supplier (122,999), prepaid medical insurance (15,398), ATL marketing support (79,826), Zoho payroll bank account (31,000). Worth clearing before these statements reach a lender or auditor.</p>
               <p style={{ margin: 0 }}><b style={{ color: T.ink }}>Receivables presentation.</b> The AR control account carries SAR 0.01 while domestic receivables of SAR 7,375,338 sit under other assets. Presentation rather than substance, but it will be queried.</p>
               <p style={{ margin: 0 }}><b style={{ color: T.ink }}>The bigger question.</b> Current year earnings on the balance sheet stand at (8,306,219). Two months of P&amp;L cannot explain that. The year-to-date picture is the conversation this leads to.</p>
+              <p style={{ margin: 0 }}><b style={{ color: T.ink }}>Four added accounts.</b> Withholding tax, S&amp;D recruitment fees, S&amp;D bonus and S&amp;D overtime carry May activity in the audited pack but no account code, and they do not appear in the June/July export at all. They are shown with codes beginning AUD- and nil in June and July. Confirm whether they were reclassified or simply stopped.</p>
               <p style={{ margin: 0 }}><b style={{ color: T.ink }}>What is missing.</b> No budget and no prior-year comparative were provided, and there is no volume, price or customer mix data — so the revenue movement cannot yet be split into rate against volume.</p>
               {dirty && (
                 <p style={{ margin: 0, color: T.blue }}>

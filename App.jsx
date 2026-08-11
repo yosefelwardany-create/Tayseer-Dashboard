@@ -5,12 +5,12 @@ import JulyBrief from "./JulyBrief.jsx";
 const T = { ink: "#1A2421", paper: "#F2F3EE", card: "#FBFBF8", line: "rgba(26,36,33,0.14)", inkSoft: "#4A5450" };
 
 const VIEWS = [
-  { id: "july", label: "July 2026 brief", el: <JulyBrief /> },
+  { id: "monthly", label: "Monthly P&L", el: <JulyBrief /> },
   { id: "control", label: "P&L control room", el: <ControlRoom /> },
 ];
 
 export default function App() {
-  const [view, setView] = useState("july");
+  const [view, setView] = useState("monthly");
 
   return (
     <div style={{ background: T.paper, minHeight: "100vh" }}>
