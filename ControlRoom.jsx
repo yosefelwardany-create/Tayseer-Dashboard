@@ -1,4 +1,5 @@
 import { useState, useMemo, useEffect } from "react";
+import { BASELINE, MONTHS } from "./data.js";
 
 // ------------------------------------------------------------------
 // Tokens — same identity as the owner brief, so the two feel like a suite
@@ -9,27 +10,98 @@ const T = {
   sand: "#B98A3C", blue: "#2F6690",
 };
 
-// Baseline = Jun 2026 run-rate, reconstructed from the 14-month P&L (SAR K / month unless %)
-const DEFAULTS = {
-  grossSales: 4494, returns: 8.5,
-  cogs: 56.9,
-  discounts: 14.0, promos: 10.0, advertising: 12.0, commissions: 2.4,
-  discards: 4.6,
-  warehouse: 219, salesPay: 228, fleet: 92, freight: 25,
-  mgmtFee: 364, gna: 350, badDebt: 66, fines: 24,
-  waves: 0, anchorType: "cosmetics", waveSize: 1000, anchorMargin: 30,
+// ------------------------------------------------------------------
+// The baseline is not hardcoded — it is rebuilt from the actual ledger
+// for whichever month you pick, account by account. Every account lands
+// in exactly one lever, so "Today (actuals)" reproduces that month's
+// real result to the riyal.
+// ------------------------------------------------------------------
+const DISCOUNT_LINES = new Set([
+  "Cash Discount, CN or Debit Memo", "LIQ Discount/Promotion",
+  "LIQ Discount/Promotion (Nongshim)", "Price discounts", "Price discounts - Al Ameed",
+]);
+const PROMO_LINES = new Set([
+  "Promotion/ QTY Discount", "Promotion/ QTY Discount (Nongshim)", "Promotion/ QTY Discount - Al Ameed",
+]);
+const COMMISSION_LINES = new Set(["Sales staffs Commission", "Merchandising Expenses"]);
+const DISCARD_LINES = new Set([
+  "Allowance for near expiry inventory", "RTV", "Write-off ~ (Expiry/Damage) ~ Finished goods",
+]);
+
+function deriveFrom(month) {
+  const b = {
+    costOfSales: 0, discounts: 0, promos: 0, advertising: 0, commissions: 0, discards: 0,
+    warehouse: 0, salesPay: 0, fleet: 0, freight: 0, mgmtFee: 0, gna: 0, badDebt: 0, fines: 0,
+  };
+  let rev = 0, ret = 0;
+
+  for (const r of BASELINE) {
+    const x = r[month] || 0;
+    if (r.s === "REV") { if (r.c === "41000000") rev += x; else ret += x; }
+    else if (r.s === "COGS") {
+      if (r.n === "Cost of sales/change in finished goods") b.costOfSales += x;
+      else if (DISCOUNT_LINES.has(r.n)) b.discounts += x;
+      else if (PROMO_LINES.has(r.n)) b.promos += x;
+      else b.gna += x;
+    }
+    else if (r.s === "NOE") b.gna += x;
+    else if (r.s === "NOI") b.gna -= x;
+    else { // OPEX
+      if (r.g === "Advertising & Marketing") b.advertising += x;
+      else if (COMMISSION_LINES.has(r.n)) b.commissions += x;
+      else if (DISCARD_LINES.has(r.n)) b.discards += x;
+      else if (r.n === "Rebate Expense") b.discounts += x;
+      else if (r.g === "3PL / Warehousing" || r.g === "Outsourcing") b.warehouse += x;
+      else if (r.g === "Payroll — Sales & Distribution") b.salesPay += x;
+      else if (r.g === "Vehicles") b.fleet += x;
+      else if (r.n === "Outward freight/transportation (local)") b.freight += x;
+      else if (r.n === "Management Fees") b.mgmtFee += x;
+      else if (r.n === "Doubtful Debts Expense") b.badDebt += x;
+      else if (r.n === "Fines and penalties ~ Others") b.fines += x;
+      else b.gna += x;
+    }
+  }
+
+  const net = rev + ret;
+  // Full precision — the sliders display rounded, but rounding the stored
+  // baseline would stop the Actuals preset tying back to the real result.
+  const K = (x) => x / 1000;
+  const P = (x) => (net ? (x / net) * 100 : 0);
+  return {
+    grossSales: K(rev), returns: rev ? (-ret / rev) * 100 : 0,
+    cogs: P(b.costOfSales),
+    discounts: P(b.discounts), promos: P(b.promos), advertising: P(b.advertising), commissions: P(b.commissions),
+    discards: P(b.discards),
+    warehouse: K(b.warehouse), salesPay: K(b.salesPay), fleet: K(b.fleet), freight: K(b.freight),
+    mgmtFee: K(b.mgmtFee), gna: K(b.gna), badDebt: K(b.badDebt), fines: K(b.fines),
+    waves: 0, anchorType: "cosmetics", waveSize: 1000, anchorMargin: 30,
+  };
+}
+
+// The month's actual bottom line, straight from the ledger (SAR K)
+function actualResult(month) {
+  const sum = (f) => BASELINE.filter(f).reduce((a, r) => a + (r[month] || 0), 0);
+  const net = sum((r) => r.s === "REV");
+  return (net - sum((r) => r.s === "COGS") - sum((r) => r.s === "OPEX")
+          + sum((r) => r.s === "NOI") - sum((r) => r.s === "NOE")) / 1000;
+}
+
+const presetsFor = (month) => {
+  const base = deriveFrom(month);
+  return {
+    [`Actuals (${(MONTHS.find((m) => m.key === month) || {}).short || month})`]: { ...base },
+    "Lean ops": { ...base, gna: 70, badDebt: 20, fines: 0 },
+    "Full turnaround": {
+      ...base, gna: 70, badDebt: 20, fines: 0,
+      discounts: 8, promos: 5, advertising: 7, commissions: 2,
+      discards: 1.5, returns: 4,
+      waves: 2, anchorType: "cosmetics", waveSize: 1000, anchorMargin: 30,
+    },
+  };
 };
 
-const PRESETS = {
-  "Today (actuals)": { ...DEFAULTS },
-  "Lean ops": { ...DEFAULTS, gna: 70, badDebt: 20, fines: 0 },
-  "Full turnaround": {
-    ...DEFAULTS, gna: 70, badDebt: 20, fines: 0,
-    discounts: 8, promos: 5, advertising: 7, commissions: 2,
-    discards: 1.5, returns: 4,
-    waves: 2, anchorType: "cosmetics", waveSize: 1000, anchorMargin: 30,
-  },
-};
+// Sliders must reach whatever the actuals turn out to be, in any month
+const headroom = (staticMax, ...vals) => Math.max(staticMax, ...vals.map((v) => Math.ceil((v || 0) * 1.3)));
 
 // ------------------------------------------------------------------
 // Small pieces
@@ -89,9 +161,19 @@ function RiyalStrip({ cogs, give, kept }) {
 // App
 // ------------------------------------------------------------------
 export default function ControlRoom() {
-  const [s, setS] = useState({ ...DEFAULTS });
+  const [month, setMonth] = useState("jul");
+  const [s, setS] = useState(() => deriveFrom("jul"));
   const set = (k) => (v) => setS((p) => ({ ...p, [k]: v }));
+
+  const PRESETS = useMemo(() => presetsFor(month), [month]);
   const applyPreset = (name) => setS({ ...PRESETS[name] });
+
+  // Switching the baseline month rebases every lever on that month's actuals
+  const changeMonth = (k) => { setMonth(k); setS(deriveFrom(k)); };
+
+  const actual = useMemo(() => actualResult(month), [month]);
+  const monthLabel = (MONTHS.find((m) => m.key === month) || {}).label || month;
+  const monthShort = (MONTHS.find((m) => m.key === month) || {}).short || month;
 
   const [loading, setLoading] = useState(true);
   const [saveState, setSaveState] = useState("idle"); // idle | saving | saved | error
@@ -103,7 +185,12 @@ export default function ControlRoom() {
       .then((r) => r.json())
       .then((res) => {
         if (res.data) {
-          setS(res.data);
+          if (res.data.levers) {           // saved by this version
+            if (res.data.month) setMonth(res.data.month);
+            setS(res.data.levers);
+          } else {                          // saved by the earlier version
+            setS(res.data);
+          }
           setUpdatedAt(res.updated_at);
         }
       })
@@ -117,7 +204,7 @@ export default function ControlRoom() {
       const res = await fetch("/api/scenario", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(s),
+        body: JSON.stringify({ month, levers: s }),
       });
       if (!res.ok) throw new Error("Save failed");
       setSaveState("saved");
@@ -204,9 +291,33 @@ export default function ControlRoom() {
             Every lever on the P&L<span style={{ color: T.sand }}>.</span>
           </h1>
           <p style={{ margin: "8px 0 0", fontSize: 14.5, color: T.inkSoft, maxWidth: 640 }}>
-            Baseline is the June 2026 run-rate rebuilt from the 14-month accounts. Move any lever; the result recalculates instantly.
+            Baseline is {monthLabel}, rebuilt account by account from the ledger. Move any lever; the result recalculates instantly.
           </p>
         </header>
+
+        {/* Baseline month */}
+        <div style={{
+          display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginBottom: 12,
+          background: T.card, border: `1px solid ${T.line}`, borderRadius: 10, padding: "10px 14px",
+        }}>
+          <span style={{ fontSize: 11, letterSpacing: ".07em", textTransform: "uppercase", color: T.inkSoft, fontWeight: 600 }}>
+            Baseline month
+          </span>
+          {MONTHS.map((m) => (
+            <button key={m.key} onClick={() => changeMonth(m.key)} style={{
+              padding: "6px 14px", borderRadius: 999, fontSize: 13, fontWeight: 600,
+              border: `1.5px solid ${month === m.key ? T.ink : T.line}`,
+              background: month === m.key ? T.ink : T.paper,
+              color: month === m.key ? T.paper : T.ink,
+            }}>{m.label}</button>
+          ))}
+          <span style={{ fontSize: 12.5, color: T.inkSoft }}>
+            Actual {monthShort} result {(actual >= 0 ? "+" : "−") + Math.abs(Math.round(actual)) + "K"}
+            {Math.abs(r.pl - actual) < 0.5
+              ? " — levers untouched, model agrees"
+              : ` · levers moved: model now ${(r.pl >= 0 ? "+" : "−") + Math.abs(Math.round(r.pl)) + "K"} (${(r.pl - actual >= 0 ? "+" : "−") + Math.abs(Math.round(r.pl - actual)) + "K"})`}
+          </span>
+        </div>
 
         {/* Presets + Save */}
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 16, alignItems: "center" }}>
@@ -244,37 +355,37 @@ export default function ControlRoom() {
         {/* Lever panels */}
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(285px, 1fr))", gap: 14 }}>
           <Panel title="Revenue" tint={T.blue} subtotal={`net ${(r.net / 1000).toFixed(2)}M`}>
-            <Lever label="Gross sales" value={s.grossSales} set={set("grossSales")} min={1500} max={9000} step={50} unit="M" accent={T.blue} />
-            <Lever label="Sales returns" value={s.returns} set={set("returns")} min={0} max={12} step={0.1} note="actuals 8.5 · healthy 2–3" accent={T.blue} />
+            <Lever label="Gross sales" value={s.grossSales} set={set("grossSales")} min={1500} max={headroom(9000, s.grossSales)} step={50} unit="M" accent={T.blue} />
+            <Lever label="Sales returns" value={s.returns} set={set("returns")} min={0} max={headroom(12, s.returns)} step={0.1} note="healthy 2–3" accent={T.blue} />
           </Panel>
 
           <Panel title="Product cost" tint={T.inkSoft} subtotal={`−${Math.round(r.cogsV)}K`}>
-            <Lever label="True COGS, % of net revenue" value={s.cogs} set={set("cogs")} min={45} max={75} step={0.1} note="clean actuals 56.9" accent={T.inkSoft} />
+            <Lever label="True COGS, % of net revenue" value={s.cogs} set={set("cogs")} min={40} max={headroom(75, s.cogs)} step={0.1} note="cost of sales only" accent={T.inkSoft} />
           </Panel>
 
           <Panel title="Trade spend" tint={T.loss} subtotal={`${r.tradePct.toFixed(1)}% · −${Math.round(r.tradeV)}K`}>
-            <Lever label="Discounts, rebates & LIQ" value={s.discounts} set={set("discounts")} min={0} max={20} step={0.1} accent={T.loss} />
-            <Lever label="Promotions & QTY deals" value={s.promos} set={set("promos")} min={0} max={16} step={0.1} accent={T.loss} />
-            <Lever label="Advertising & marketing" value={s.advertising} set={set("advertising")} min={0} max={16} step={0.1} accent={T.loss} />
-            <Lever label="Commissions & merchandising" value={s.commissions} set={set("commissions")} min={0} max={6} step={0.1} accent={T.loss} />
+            <Lever label="Discounts, rebates & LIQ" value={s.discounts} set={set("discounts")} min={0} max={headroom(20, s.discounts)} step={0.1} accent={T.loss} />
+            <Lever label="Promotions & QTY deals" value={s.promos} set={set("promos")} min={0} max={headroom(16, s.promos)} step={0.1} accent={T.loss} />
+            <Lever label="Advertising & marketing" value={s.advertising} set={set("advertising")} min={0} max={headroom(16, s.advertising)} step={0.1} accent={T.loss} />
+            <Lever label="Commissions & merchandising" value={s.commissions} set={set("commissions")} min={0} max={headroom(6, s.commissions)} step={0.1} accent={T.loss} />
           </Panel>
 
           <Panel title="Waste & credit" tint={T.loss} subtotal={`−${Math.round(r.discardV + s.badDebt + s.fines)}K`}>
-            <Lever label="Discards: expiry, write-offs, RTV" value={s.discards} set={set("discards")} min={0} max={8} step={0.1} note="actuals 4.6" accent={T.loss} />
-            <Lever label="Doubtful debts" value={s.badDebt} set={set("badDebt")} min={0} max={150} step={1} unit="K" accent={T.loss} />
-            <Lever label="Fines & penalties" value={s.fines} set={set("fines")} min={0} max={60} step={1} unit="K" accent={T.loss} />
+            <Lever label="Discards: expiry, write-offs, RTV" value={s.discards} set={set("discards")} min={0} max={headroom(8, s.discards)} step={0.1} accent={T.loss} />
+            <Lever label="Doubtful debts" value={s.badDebt} set={set("badDebt")} min={0} max={headroom(150, s.badDebt)} step={1} unit="K" accent={T.loss} />
+            <Lever label="Fines & penalties" value={s.fines} set={set("fines")} min={0} max={headroom(60, s.fines)} step={1} unit="K" accent={T.loss} />
           </Panel>
 
           <Panel title="Operations" tint={T.sand} subtotal={`−${Math.round(r.ops)}K`}>
-            <Lever label="Warehouse: labour, rent, handling" value={s.warehouse} set={set("warehouse")} min={100} max={400} step={1} unit="K" accent={T.sand} />
-            <Lever label="Sales team payroll" value={s.salesPay} set={set("salesPay")} min={50} max={400} step={1} unit="K" accent={T.sand} />
-            <Lever label="Vans & fleet" value={s.fleet} set={set("fleet")} min={30} max={200} step={1} unit="K" accent={T.sand} />
-            <Lever label="Outward freight" value={s.freight} set={set("freight")} min={0} max={80} step={1} unit="K" accent={T.sand} />
+            <Lever label="Warehouse: labour, rent, handling" value={s.warehouse} set={set("warehouse")} min={0} max={headroom(400, s.warehouse)} step={1} unit="K" accent={T.sand} />
+            <Lever label="Sales team payroll" value={s.salesPay} set={set("salesPay")} min={0} max={headroom(400, s.salesPay)} step={1} unit="K" accent={T.sand} />
+            <Lever label="Vans & fleet" value={s.fleet} set={set("fleet")} min={0} max={headroom(200, s.fleet)} step={1} unit="K" accent={T.sand} />
+            <Lever label="Outward freight" value={s.freight} set={set("freight")} min={0} max={headroom(80, s.freight)} step={1} unit="K" accent={T.sand} />
           </Panel>
 
           <Panel title="Overheads" tint={T.sand} subtotal={`−${Math.round(s.mgmtFee + s.gna)}K`}>
-            <Lever label="Management fees" value={s.mgmtFee} set={set("mgmtFee")} min={0} max={800} step={1} unit="K" note="actuals 364" accent={T.sand} />
-            <Lever label="G&A payroll, rent, admin" value={s.gna} set={set("gna")} min={40} max={600} step={5} unit="K" note="lean floor ≈ 70" accent={T.sand} />
+            <Lever label="Management fees" value={s.mgmtFee} set={set("mgmtFee")} min={0} max={headroom(800, s.mgmtFee)} step={1} unit="K" accent={T.sand} />
+            <Lever label="G&A payroll, rent, admin" value={s.gna} set={set("gna")} min={0} max={headroom(600, s.gna)} step={5} unit="K" note="lean floor ≈ 70" accent={T.sand} />
           </Panel>
 
           <Panel title="Anchor launches" tint={T.profit} subtotal={r.aRev > 0 ? `+${Math.round(r.aContrib)}K net` : "none"}>
@@ -322,9 +433,11 @@ export default function ControlRoom() {
         </div>
 
         <p style={{ marginTop: 22, fontSize: 12.5, color: T.inkSoft, lineHeight: 1.6, maxWidth: 720 }}>
-          Baseline levers reflect the reconstructed June 2026 run-rate; the "Today" preset lands near the actual ~1.3M monthly burn.
-          Breakeven revenue assumes the base-basket margin structure and treats anchor contribution as an offset to the fixed base.
-          Analysis built from the 14-month management accounts — verify cash position and management-fee terms independently.
+          Levers are derived from {monthLabel} account by account: every line in the statement lands in exactly one lever, so the
+          Actuals preset reproduces that month&rsquo;s real result to the riyal. Switching the baseline month rebases every lever and
+          discards unsaved lever changes. Breakeven revenue assumes the base-basket margin structure and treats anchor contribution
+          as an offset to the fixed base. May comes from the audited pack, June and July from the ledger export — see the notes on
+          the Monthly P&amp;L before comparing across that boundary.
         </p>
       </div>
     </div>

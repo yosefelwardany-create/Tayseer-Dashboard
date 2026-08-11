@@ -25,6 +25,14 @@
 //
 // Edit these figures to change the baseline the app resets to.
 
+// The months held below. Add a key here and a matching field on every row
+// to bring a new month into both the Monthly P&L and the control room.
+export const MONTHS = [
+  { key: "may", label: "May 2026", short: "May" },
+  { key: "jun", label: "Jun 2026", short: "Jun" },
+  { key: "jul", label: "Jul 2026", short: "Jul" },
+];
+
 export const BASELINE = [
   {"s": "REV", "g": "Revenue", "n": "Sales returns ~ Domestic", "c": "41001000", "may": -273171.11, "jun": -117923.86, "jul": -493629.49, "o": false},
   {"s": "REV", "g": "Revenue", "n": "Sales revenue ~ Domestic", "c": "41000000", "may": 4473020.88, "jun": 3989368.83, "jul": 4298345.11, "o": false},

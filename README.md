@@ -5,14 +5,16 @@ Two views of the same business, one deployment:
 | Tab | What it does |
 |---|---|
 | **Monthly P&L** | Any month against any other — May, June or July 2026, in either direction. Every account figure is editable: click a number, type a new one, and the KPIs, bridge, group charts and the underlying result all recalculate. |
-| **P&L control room** | Forward-looking scenario sliders on the June run-rate. |
+| **P&L control room** | Forward-looking scenario sliders. Pick May, June or July as the baseline and every lever rebases on that month's actuals, derived account by account — the Actuals preset reproduces the real result to the riyal. |
 
 Both tabs save to the same Neon database. Anyone with the link sees the last saved
 version, and "Save changes" overwrites it for everyone.
 
 ## Comparing months
 
-Pick the two months at the top. **Swap** reverses the direction. Add a fourth month by
+Pick the two months at the top. **Swap** reverses the direction. **Sort** reorders the
+expense groups and the lines inside them by statement order, biggest change, biggest amount,
+or name. Add a fourth month by
 appending a key to `MONTHS` in `JulyBrief.jsx` and the matching field to every row in
 `data.js` — nothing else needs touching.
 
@@ -38,6 +40,8 @@ account code there, and are absent from the June/July export. They show nil in t
 - Negative figures can be typed as `-1000` or `(1000)`.
 - **Underlying** strips every ticked one-off / non-cash line from *both* months.
   Untick anything in **Judgement calls** that Tayseer disputes and the whole page re-bridges.
+- While anything is edited, an **Effect of your edits** strip appears under the KPIs showing
+  each month's result before and after, and how much the month-on-month change has moved.
 - **Reset to actuals** restores the figures as booked. It only clears the current
   browser session — the saved version stays until you press Save changes.
 
@@ -100,9 +104,12 @@ Nothing to create by hand — each row is inserted the first time you press Save
 ## Files
 
 ```
-data.js         July and June figures, one row per account — edit here to change the baseline
-JulyBrief.jsx   The July 2026 statement, editable
-ControlRoom.jsx The scenario sliders
+data.js         May, June and July figures plus the MONTHS list — edit here to change the baseline
+JulyBrief.jsx   The Monthly P&L: month picker, sorting, editable figures
+ControlRoom.jsx The scenario sliders, rebased on any month
 App.jsx         Tab shell
 server.js       Express API + static hosting
 ```
+
+Adding a month means two edits: a key in `MONTHS` and the matching field on every row in
+`data.js`. Both tabs pick it up automatically.

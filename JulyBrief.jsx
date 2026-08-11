@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect, useCallback, Fragment } from "react";
-import { BASELINE } from "./data.js";
+import { BASELINE, MONTHS } from "./data.js";
 
 // ------------------------------------------------------------------
 // Tokens — identical to ControlRoom.jsx so the two read as one suite
@@ -12,12 +12,6 @@ const T = {
 
 const SCENARIO = "july2026"; // the row this page reads/writes in Neon
 
-// The months held in data.js. Add a key here when a new month is appended.
-const MONTHS = [
-  { key: "may", label: "May 2026", short: "May" },
-  { key: "jun", label: "Jun 2026", short: "Jun" },
-  { key: "jul", label: "Jul 2026", short: "Jul" },
-];
 const labelOf = (k) => (MONTHS.find((m) => m.key === k) || {}).label || k;
 
 // May comes from the audited pack, June and July from the ledger export.
@@ -183,6 +177,7 @@ export default function JulyBrief() {
   const [mA, setMA] = useState("jun"); // base month
   const [mB, setMB] = useState("jul"); // month being compared
   const [basis, setBasis] = useState("rep"); // rep | norm
+  const [sortBy, setSortBy] = useState("statement"); // statement | change | size | name
   const [openGroups, setOpenGroups] = useState({});
   const [loading, setLoading] = useState(true);
   const [saveState, setSaveState] = useState("idle");
@@ -280,6 +275,29 @@ export default function JulyBrief() {
     }}>{children}</button>
   );
 
+  // Sorting — applied to the expense groups and to the lines inside them
+  const sortLines = useCallback((list) => {
+    const arr = [...list];
+    if (sortBy === "change") arr.sort((x, y) => Math.abs(y[mB] - y[mA]) - Math.abs(x[mB] - x[mA]));
+    else if (sortBy === "size") arr.sort((x, y) => Math.abs(y[mB]) - Math.abs(x[mB]));
+    else if (sortBy === "name") arr.sort((x, y) => x.n.localeCompare(y.n));
+    return arr;
+  }, [sortBy, mA, mB]);
+
+  const sortedGroups = useMemo(() => {
+    const arr = [...GROUP_ORDER];
+    if (sortBy === "change") arr.sort((x, y) => Math.abs(L.groups[y] - J.groups[y]) - Math.abs(L.groups[x] - J.groups[x]));
+    else if (sortBy === "size") arr.sort((x, y) => Math.abs(L.groups[y]) - Math.abs(L.groups[x]));
+    else if (sortBy === "name") arr.sort((x, y) => x.localeCompare(y));
+    return arr;
+  }, [sortBy, J, L]);
+
+  // What the edits have done to the bottom line, against the filed actuals
+  const impact = useMemo(() => {
+    const baseA = model(BASELINE, mA, basis), baseB = model(BASELINE, mB, basis);
+    return { baseA: baseA.profit, baseB: baseB.profit, nowA: J.profit, nowB: L.profit };
+  }, [mA, mB, basis, J, L]);
+
   const shortA = (MONTHS.find((m) => m.key === mA) || {}).short || mA;
   const shortB = (MONTHS.find((m) => m.key === mB) || {}).short || mB;
   const selectStyle = {
@@ -370,8 +388,17 @@ export default function JulyBrief() {
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 16, alignItems: "center" }}>
           {pill(basis === "rep", () => setBasis("rep"), "As reported", "rep")}
           {pill(basis === "norm", () => setBasis("norm"), "Underlying", "norm")}
-          <span style={{ fontSize: 12.5, color: T.inkSoft, marginRight: "auto" }}>
+          <span style={{ fontSize: 12.5, color: T.inkSoft }}>
             {basis === "rep" ? "Every figure as booked." : "Ticked one-off and non-cash lines removed from both months."}
+          </span>
+          <span style={{ display: "flex", gap: 7, alignItems: "center", marginRight: "auto" }}>
+            <span style={{ fontSize: 11, letterSpacing: ".07em", textTransform: "uppercase", color: T.inkSoft, fontWeight: 600 }}>Sort</span>
+            <select value={sortBy} onChange={(e) => setSortBy(e.target.value)} style={selectStyle} aria-label="Sort the statement">
+              <option value="statement">Statement order</option>
+              <option value="change">Biggest change</option>
+              <option value="size">Biggest amount</option>
+              <option value="name">Name A–Z</option>
+            </select>
           </span>
           <button onClick={resetAll} disabled={!dirty} style={{
             padding: "8px 15px", borderRadius: 999, fontSize: 13.5, fontWeight: 600,
@@ -406,6 +433,31 @@ export default function JulyBrief() {
             opex={L.net ? (L.opex / L.net) * 100 : 0}
             kept={L.net ? (L.profit / L.net) * 100 : 0}
           />
+
+          {dirty && (
+            <div style={{
+              marginTop: 10, background: "rgba(47,102,144,0.08)", border: `1px solid rgba(47,102,144,0.35)`,
+              borderRadius: 9, padding: "9px 13px", display: "flex", gap: 18, flexWrap: "wrap", alignItems: "center",
+            }}>
+              <span style={{ fontSize: 11, letterSpacing: ".07em", textTransform: "uppercase", color: T.blue, fontWeight: 700 }}>
+                Effect of your edits
+              </span>
+              {[[shortA, impact.baseA, impact.nowA], [shortB, impact.baseB, impact.nowB]].map(([lab, was, now]) => (
+                <span key={lab} style={{ fontSize: 12.5, color: T.inkSoft, fontVariantNumeric: "tabular-nums" }}>
+                  {lab} net result <b style={{ color: T.inkSoft }}>{fmt(was)}</b> →{" "}
+                  <b style={{ color: tone(now) }}>{fmt(now)}</b>
+                  <b style={{ color: tone(now - was), marginLeft: 6 }}>
+                    ({now - was >= 0 ? "+" : "−"}{fmt(Math.abs(now - was))})
+                  </b>
+                </span>
+              ))}
+              <span style={{ fontSize: 12.5, color: T.inkSoft, fontVariantNumeric: "tabular-nums" }}>
+                Change between the two months <b style={{ color: tone((impact.nowB - impact.nowA) - (impact.baseB - impact.baseA)) }}>
+                  {fmt((impact.nowB - impact.nowA) - (impact.baseB - impact.baseA))}
+                </b> different from the filed figures
+              </span>
+            </div>
+          )}
         </div>
 
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", gap: 14 }}>
@@ -580,7 +632,7 @@ export default function JulyBrief() {
 
                   <tr><td colSpan={6} style={{ padding: "16px 0 4px", fontSize: 11, letterSpacing: ".07em", textTransform: "uppercase", color: T.inkSoft, fontWeight: 600 }}>Operating expenses</td></tr>
 
-                  {GROUP_ORDER.map((g) => (
+                  {sortedGroups.map((g) => (
                     <Fragment key={g}>
                       <Row
                         label={g}
@@ -593,7 +645,7 @@ export default function JulyBrief() {
                         open={openGroups[g]}
                       />
                       {openGroups[g] &&
-                        rows.filter((r) => r.g === g).map((r) => {
+                        sortLines(rows.filter((r) => r.g === g)).map((r) => {
                           const shown = basis === "norm" && r.o;
                           return (
                             <Row
@@ -633,7 +685,7 @@ export default function JulyBrief() {
               </div>
               <table>
                 <tbody>
-                  {rows.filter((r) => r.s === "REV" || r.s === "COGS" || r.s === "NOI" || r.s === "NOE").map((r) => (
+                  {sortLines(rows.filter((r) => r.s === "REV" || r.s === "COGS" || r.s === "NOI" || r.s === "NOE")).map((r) => (
                     <Row key={r.c} label={r.n} a={r[mA]} b={r[mB]} invert={r.s === "COGS" || r.s === "NOE"} flag={r.o}>
                       <td style={{ padding: "2px 4px", width: 110 }}>
                         <Money value={r[mA]} onChange={(v) => edit(r.c, mA, v)} edited={isEdited(r.c, mA)} />
