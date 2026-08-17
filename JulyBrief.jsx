@@ -1,5 +1,8 @@
 import { useState, useMemo, useEffect, useCallback, Fragment } from "react";
 import { BASELINE, MONTHS } from "./data.js";
+import {
+  EMPTY, PRESETS, effGroup, groupOrder, moveAccount, renameGroup, reorder, checkInvariant,
+} from "./layout.js";
 
 // ------------------------------------------------------------------
 // Tokens — identical to ControlRoom.jsx so the two read as one suite
@@ -10,13 +13,12 @@ const T = {
   sand: "#B98A3C", blue: "#2F6690",
 };
 
-const SCENARIO = "july2026"; // the row this page reads/writes in Neon
+// The Neon row this page reads/writes. Renamed from "july2026" on the move to
+// the 17 Aug ledger basis: rows saved under the old name carry three months and
+// the old chart of accounts, and must not load into this build.
+const SCENARIO = "ledger2026";
 
 const labelOf = (k) => (MONTHS.find((m) => m.key === k) || {}).label || k;
-
-// May comes from the audited pack, June and July from the ledger export.
-// Any comparison spanning the two carries a basis difference — flag it.
-const SPLIT_BASIS = (a, b) => (a === "may") !== (b === "may");
 
 // ------------------------------------------------------------------
 // Formatting
@@ -29,30 +31,33 @@ const tone = (n) => (n < 0 ? T.loss : n > 0 ? T.profit : T.ink);
 // ------------------------------------------------------------------
 // The model — one pass over the rows, on either basis
 // ------------------------------------------------------------------
-const GROUP_ORDER = [...new Set(BASELINE.filter((r) => r.s === "OPEX").map((r) => r.g))];
-
-function model(rows, month, basis) {
+function model(rows, month, basis, layout) {
   const val = (r) => (basis === "norm" && r.o ? 0 : r[month]);
   const sum = (f) => rows.filter(f).reduce((a, r) => a + val(r), 0);
   const raw = (f) => rows.filter(f).reduce((a, r) => a + r[month], 0);
 
-  const rev = raw((r) => r.c === "41000000");
-  const ret = raw((r) => r.c === "41001000");
+  // Revenue and returns are channel subaccounts (Al-Ameed / Nongshim / Others)
+  const rev = raw((r) => r.s === "REV" && !r.c.startsWith("41001"));
+  const ret = raw((r) => r.s === "REV" && r.c.startsWith("41001"));
   const net = rev + ret;
   const cogs = sum((r) => r.s === "COGS");
   const gp = net - cogs;
 
+  // Headers are presentation. The total is taken from the section, never from
+  // the sum of the headers, so no regrouping can move it.
+  const order = groupOrder(rows, layout);
   const groups = {};
-  GROUP_ORDER.forEach((g) => (groups[g] = sum((r) => r.g === g)));
-  const opex = Object.values(groups).reduce((a, b) => a + b, 0);
+  order.forEach((g) => (groups[g] = sum((r) => r.s === "OPEX" && effGroup(r, layout) === g)));
+  const opex = sum((r) => r.s === "OPEX");
 
   const op = gp - opex;
   const noi = sum((r) => r.s === "NOI");
   const noe = sum((r) => r.s === "NOE");
-  const dep = groups["Depreciation"] || 0;
+  // Found by its filed group, so the memo line survives any regrouping
+  const dep = sum((r) => r.g === "Depreciation");
 
   return {
-    rev, ret, net, cogs, gp, groups, opex, op, noi, noe,
+    rev, ret, net, cogs, gp, groups, order, opex, op, noi, noe,
     profit: op + noi - noe, dep,
     gm: net ? gp / net : 0,
     retPct: rev ? -ret / rev : 0,
@@ -179,6 +184,10 @@ export default function JulyBrief() {
   const [basis, setBasis] = useState("rep"); // rep | norm
   const [sortBy, setSortBy] = useState("statement"); // statement | change | size | name
   const [openGroups, setOpenGroups] = useState({});
+  const [layout, setLayout] = useState(EMPTY);
+  const [layoutOpen, setLayoutOpen] = useState({});
+  const [newHeader, setNewHeader] = useState("");
+  const [extraHeaders, setExtraHeaders] = useState([]); // created, not yet populated
   const [loading, setLoading] = useState(true);
   const [saveState, setSaveState] = useState("idle");
   const [updatedAt, setUpdatedAt] = useState(null);
@@ -188,10 +197,17 @@ export default function JulyBrief() {
     fetch(`/api/scenario/${SCENARIO}`)
       .then((r) => r.json())
       .then((res) => {
-        if (res.data && Array.isArray(res.data.rows)) {
+        // Accept only rows saved on this basis: same account count, monthly
+        // fields present. Anything else is a stale payload from an older build.
+        const compatible =
+          res.data && Array.isArray(res.data.rows) &&
+          res.data.rows.length === BASELINE.length &&
+          res.data.rows[0] && res.data.rows[0].jan !== undefined;
+        if (compatible) {
           setRows(res.data.rows);
           setUpdatedAt(res.updated_at);
         }
+        if (compatible && res.data.layout && res.data.layout.moves) setLayout(res.data.layout);
       })
       .catch((err) => console.error("Load failed:", err))
       .finally(() => setLoading(false));
@@ -203,7 +219,7 @@ export default function JulyBrief() {
       const res = await fetch(`/api/scenario/${SCENARIO}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ rows }),
+        body: JSON.stringify({ rows, layout }),
       });
       if (!res.ok) throw new Error("Save failed");
       setSaveState("saved");
@@ -235,10 +251,10 @@ export default function JulyBrief() {
 
   // Both bases, both months — the whole page reads off these four
   const { rJ, rL, nJ, nL, J, L } = useMemo(() => {
-    const rJ = model(rows, mA, "rep"), rL = model(rows, mB, "rep");
-    const nJ = model(rows, mA, "norm"), nL = model(rows, mB, "norm");
+    const rJ = model(rows, mA, "rep", layout), rL = model(rows, mB, "rep", layout);
+    const nJ = model(rows, mA, "norm", layout), nL = model(rows, mB, "norm", layout);
     return { rJ, rL, nJ, nL, J: basis === "rep" ? rJ : nJ, L: basis === "rep" ? rL : nL };
-  }, [rows, basis, mA, mB]);
+  }, [rows, basis, mA, mB, layout]);
 
   const repGain = rL.profit - rJ.profit;
   const normGain = nL.profit - nJ.profit;
@@ -254,10 +270,10 @@ export default function JulyBrief() {
   );
 
   const opexSorted = useMemo(
-    () => [...GROUP_ORDER].sort((a, b) => Math.abs(L.groups[b] - J.groups[b]) - Math.abs(L.groups[a] - J.groups[a])),
+    () => [...L.order].sort((a, b) => Math.abs(L.groups[b] - J.groups[b]) - Math.abs(L.groups[a] - J.groups[a])),
     [J, L]
   );
-  const opexMax = Math.max(...GROUP_ORDER.map((g) => Math.max(J.groups[g], L.groups[g])), 1);
+  const opexMax = Math.max(...L.order.map((g) => Math.max(J.groups[g] || 0, L.groups[g] || 0)), 1);
 
   const kpi = (label, val, delta, colour) => (
     <div key={label} style={{ flex: "1 1 140px", background: T.card, border: `1px solid ${T.line}`, borderRadius: 10, padding: "10px 14px" }}>
@@ -285,18 +301,36 @@ export default function JulyBrief() {
   }, [sortBy, mA, mB]);
 
   const sortedGroups = useMemo(() => {
-    const arr = [...GROUP_ORDER];
+    const arr = [...L.order];
     if (sortBy === "change") arr.sort((x, y) => Math.abs(L.groups[y] - J.groups[y]) - Math.abs(L.groups[x] - J.groups[x]));
     else if (sortBy === "size") arr.sort((x, y) => Math.abs(L.groups[y]) - Math.abs(L.groups[x]));
     else if (sortBy === "name") arr.sort((x, y) => x.localeCompare(y));
     return arr;
   }, [sortBy, J, L]);
 
+  // Headers currently in use, in the order the layout puts them
+  const liveGroups = useMemo(() => groupOrder(rows, layout), [rows, layout]);
+  const shownHeaders = useMemo(
+    () => [...liveGroups, ...extraHeaders.filter((h) => !liveGroups.includes(h))],
+    [liveGroups, extraHeaders]
+  );
+  const invariant = useMemo(() => checkInvariant(rows, layout, mB), [rows, layout, mB]);
+  const layoutDirty = Object.keys(layout.moves || {}).length > 0;
+
+  const applyPreset = (p) => { setLayout(p.layout); setExtraHeaders([]); setLayoutOpen({}); };
+  const addHeader = () => {
+    const name = newHeader.trim();
+    if (!name || shownHeaders.includes(name)) return setNewHeader("");
+    setExtraHeaders((p) => [...p, name]);
+    setLayout((l) => ({ ...l, order: [...l.order, name] }));
+    setNewHeader("");
+  };
+
   // What the edits have done to the bottom line, against the filed actuals
   const impact = useMemo(() => {
-    const baseA = model(BASELINE, mA, basis), baseB = model(BASELINE, mB, basis);
+    const baseA = model(BASELINE, mA, basis, layout), baseB = model(BASELINE, mB, basis, layout);
     return { baseA: baseA.profit, baseB: baseB.profit, nowA: J.profit, nowB: L.profit };
-  }, [mA, mB, basis, J, L]);
+  }, [mA, mB, basis, J, L, layout]);
 
   const shortA = (MONTHS.find((m) => m.key === mA) || {}).short || mA;
   const shortB = (MONTHS.find((m) => m.key === mB) || {}).short || mB;
@@ -352,8 +386,8 @@ export default function JulyBrief() {
             </p>
           </div>
           <div style={{ fontSize: 11.5, letterSpacing: ".08em", textTransform: "uppercase", color: T.inkSoft, lineHeight: 1.9, textAlign: "right" }}>
-            Prepared <b style={{ color: T.ink }}>10 Aug 2026</b><br />
-            Accrual basis · figures <b style={{ color: T.ink }}>SAR</b>
+            Zoho ledger export <b style={{ color: T.ink }}>17 Aug 2026</b><br />
+            Jan–Jul · accrual · figures <b style={{ color: T.ink }}>SAR</b>
           </div>
         </header>
 
@@ -376,11 +410,6 @@ export default function JulyBrief() {
           }}>⇄ Swap</button>
           {mA === mB && (
             <span style={{ fontSize: 12.5, color: T.loss, fontWeight: 600 }}>Same month on both sides — pick two different months.</span>
-          )}
-          {mA !== mB && SPLIT_BASIS(mA, mB) && (
-            <span style={{ fontSize: 12.5, color: T.sand, fontWeight: 600 }}>
-              Mixed sources: May is the audited pack, June and July the ledger export. See the notes.
-            </span>
           )}
         </div>
 
@@ -613,6 +642,142 @@ export default function JulyBrief() {
             </div>
           </Panel>
 
+          {/* Statement layout — item 1: move any account to any header */}
+          <Panel
+            title="Statement layout"
+            tint={T.sand}
+            hint="move any account to any header"
+            subtotal={`${liveGroups.length} header${liveGroups.length === 1 ? "" : "s"}`}
+            span
+          >
+            <p style={{ fontSize: 12.5, color: T.inkSoft, lineHeight: 1.6, margin: "0 0 12px", maxWidth: 820 }}>
+              Tayseer files under {PRESETS[0].label.match(/\d+/)[0]} headers. Regrouping is presentation, never
+              arithmetic — the check below recomputes total operating expenses from the section and from the headers
+              separately, and they have to agree. Whatever you build here is what the P&amp;L underneath renders.
+            </p>
+
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginBottom: 12 }}>
+              {PRESETS.map((p) => (
+                <button key={p.id} onClick={() => applyPreset(p)} style={{
+                  padding: "7px 14px", borderRadius: 999, fontSize: 13, fontWeight: 600,
+                  border: `1.5px solid ${T.line}`, background: T.paper, color: T.ink,
+                }}>{p.label}</button>
+              ))}
+              <span style={{ display: "flex", gap: 6, alignItems: "center", marginLeft: "auto" }}>
+                <input
+                  value={newHeader}
+                  onChange={(e) => setNewHeader(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter") addHeader(); }}
+                  placeholder="New header name"
+                  style={{
+                    padding: "7px 10px", borderRadius: 8, fontSize: 13, width: 170,
+                    border: `1.5px solid ${T.line}`, background: T.paper, color: T.ink, fontFamily: "inherit",
+                  }}
+                />
+                <button onClick={addHeader} style={{
+                  padding: "7px 13px", borderRadius: 999, fontSize: 13, fontWeight: 600,
+                  border: `1.5px solid ${T.ink}`, background: T.ink, color: T.paper,
+                }}>Add</button>
+              </span>
+            </div>
+
+            <div style={{
+              display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap",
+              padding: "9px 13px", borderRadius: 9, marginBottom: 14,
+              background: invariant.ok ? "rgba(29,158,117,0.09)" : "rgba(192,68,46,0.09)",
+              border: `1px solid ${invariant.ok ? "rgba(29,158,117,0.40)" : "rgba(192,68,46,0.40)"}`,
+            }}>
+              <span style={{ fontSize: 11, letterSpacing: ".07em", textTransform: "uppercase", fontWeight: 700, color: invariant.ok ? T.profit : T.loss }}>
+                {invariant.ok ? "Totals agree" : "Totals disagree"}
+              </span>
+              <span style={{ fontSize: 12.5, color: T.inkSoft, fontVariantNumeric: "tabular-nums" }}>
+                {labelOf(mB)} operating expenses — from the statement <b style={{ color: T.ink }}>{fmt(invariant.filed)}</b>,
+                summed across {liveGroups.length} header{liveGroups.length === 1 ? "" : "s"} <b style={{ color: T.ink }}>{fmt(invariant.byHeader)}</b>
+                {invariant.ok ? " — identical, so the regrouping moved nothing." : ` — out by ${fmt(invariant.byHeader - invariant.filed)}.`}
+              </span>
+            </div>
+
+            <div style={{ display: "grid", gap: 8 }}>
+              {shownHeaders.map((g, i) => {
+                const lines = rows.filter((r) => r.s === "OPEX" && effGroup(r, layout) === g);
+                const arrow = (delta, label, disabled) => (
+                  <button
+                    onClick={() => setLayout(reorder(layout, shownHeaders, g, delta))}
+                    disabled={disabled}
+                    aria-label={`Move ${g} ${label}`}
+                    style={{
+                      width: 24, height: 22, borderRadius: 6, fontSize: 11, lineHeight: 1,
+                      border: `1px solid ${T.line}`, background: T.card,
+                      color: disabled ? "#C3C9C4" : T.inkSoft, cursor: disabled ? "default" : "pointer",
+                    }}
+                  >{label === "up" ? "▲" : "▼"}</button>
+                );
+                return (
+                  <div key={g} style={{ border: `1px solid ${T.line}`, borderRadius: 9, background: T.paper }}>
+                    <div style={{ display: "grid", gridTemplateColumns: "auto 1fr 90px 110px auto", gap: 10, alignItems: "center", padding: "8px 10px" }}>
+                      <span style={{ display: "flex", gap: 3 }}>
+                        {arrow(-1, "up", i === 0)}
+                        {arrow(1, "down", i === shownHeaders.length - 1)}
+                      </span>
+                      <input
+                        key={g}
+                        defaultValue={g}
+                        onBlur={(e) => setLayout(renameGroup(layout, rows, g, e.target.value))}
+                        onKeyDown={(e) => { if (e.key === "Enter") e.target.blur(); if (e.key === "Escape") { e.target.value = g; e.target.blur(); } }}
+                        aria-label={`Rename ${g}`}
+                        style={{
+                          font: "inherit", fontSize: 13.5, fontWeight: 600, color: T.ink,
+                          background: T.card, border: `1px solid ${T.line}`, borderRadius: 6,
+                          padding: "4px 7px", width: "100%", outline: "none",
+                        }}
+                      />
+                      <span style={{ fontSize: 12, color: T.inkSoft, textAlign: "right" }}>
+                        {lines.length} account{lines.length === 1 ? "" : "s"}
+                      </span>
+                      <span style={{ fontSize: 13, fontWeight: 600, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>
+                        {fmt(L.groups[g] || 0)}
+                      </span>
+                      <button onClick={() => setLayoutOpen((p) => ({ ...p, [g]: !p[g] }))} style={{
+                        padding: "5px 12px", borderRadius: 999, fontSize: 12.5, fontWeight: 600,
+                        border: `1.5px solid ${T.line}`, background: T.card, color: T.ink,
+                      }}>{layoutOpen[g] ? "Hide" : "Accounts"}</button>
+                    </div>
+
+                    {layoutOpen[g] && (
+                      <div style={{ borderTop: `1px solid ${T.line}`, padding: "8px 10px 10px", display: "grid", gap: 3 }}>
+                        {lines.length === 0 && (
+                          <span style={{ fontSize: 12.5, color: "#9AA49D" }}>
+                            No accounts yet — move one here from another header.
+                          </span>
+                        )}
+                        {sortLines(lines).map((r) => (
+                          <div key={r.c} style={{ display: "grid", gridTemplateColumns: "1fr 110px 210px", gap: 8, alignItems: "center" }}>
+                            <span style={{ fontSize: 12.5, color: T.inkSoft }}>{r.n}</span>
+                            <span style={{ fontSize: 12.5, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{fmt(r[mB])}</span>
+                            <select
+                              value={g}
+                              onChange={(e) => setLayout(moveAccount(layout, r.c, e.target.value))}
+                              aria-label={`Header for ${r.n}`}
+                              style={{ ...selectStyle, fontSize: 12.5, fontWeight: 500, padding: "5px 9px" }}
+                            >
+                              {shownHeaders.map((h) => <option key={h} value={h}>{h}</option>)}
+                            </select>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+
+            <p style={{ fontSize: 12.5, color: T.inkSoft, lineHeight: 1.6, margin: "14px 0 0", maxWidth: 820 }}>
+              Renaming a header onto an existing name merges the two. Layout saves with <b>Save changes</b> and is
+              shared, so everyone opening the link sees the same statement.
+              {layoutDirty && <span style={{ color: T.blue }}> {Object.keys(layout.moves).length} account{Object.keys(layout.moves).length === 1 ? "" : "s"} moved from where Tayseer filed them.</span>}
+            </p>
+          </Panel>
+
           {/* The statement */}
           <Panel title="Profit &amp; loss" tint={T.blue} hint="click a group to open it · click any figure to change it" span>
             <div style={{ overflowX: "auto" }}>
@@ -645,7 +810,7 @@ export default function JulyBrief() {
                         open={openGroups[g]}
                       />
                       {openGroups[g] &&
-                        sortLines(rows.filter((r) => r.g === g)).map((r) => {
+                        sortLines(rows.filter((r) => r.s === "OPEX" && effGroup(r, layout) === g)).map((r) => {
                           const shown = basis === "norm" && r.o;
                           return (
                             <Row
@@ -739,16 +904,15 @@ export default function JulyBrief() {
           {/* Notes */}
           <Panel title="Notes and caveats" tint={T.inkSoft} span>
             <div style={{ fontSize: 13, color: T.inkSoft, lineHeight: 1.65, display: "grid", gap: 10, maxWidth: 860 }}>
-              <p style={{ margin: 0 }}><b style={{ color: T.ink }}>Where the figures come from.</b> May 2026 is taken from the audited analysis pack and ties to that pack&rsquo;s own subtotals to the riyal. June and July come from the later ledger export. The two do not agree on June: 16 accounts differ, and in total the ledger shows June SAR 189,706 worse than the audited pack — the largest single differences being the near-expiry inventory allowance (321,891 against 200,000), the Nongshim liquidation discount (46,292 against nil) and product listing fees (53,968 against 17,968). A June-to-July comparison is clean, since both sides come from the same export. A May-to-June comparison carries that basis difference inside it. Reconcile the two Junes before either month is presented externally.</p>
-              <p style={{ margin: 0 }}><b style={{ color: T.ink }}>Cross-check.</b> The July net loss of SAR 295,646 as booked agrees exactly to the net income line on the July cash flow statement. The two statements are consistent.</p>
-              <p style={{ margin: 0 }}><b style={{ color: T.ink }}>Advertising (June/July).</b> SAR 1,040,763 in June against SAR 16,137 in July looks like a campaign accrual or annual booking rather than monthly spend. If it covers a full year, roughly SAR 87k a month belongs in the run rate.</p>
-              <p style={{ margin: 0 }}><b style={{ color: T.ink }}>Listing fees (June/July).</b> +53,968 in June and −53,968 in July is a straight reversal. July is flattered by that credit.</p>
-              <p style={{ margin: 0 }}><b style={{ color: T.ink }}>Management fees (June/July).</b> SAR 310,592 hit June and nothing in July. If the billing is quarterly, July is understated and the underlying gap is wider than shown.</p>
-              <p style={{ margin: 0 }}><b style={{ color: T.ink }}>Balance sheet flags.</b> Several balances sit the wrong way round: advance payments to supplier (122,999), prepaid medical insurance (15,398), ATL marketing support (79,826), Zoho payroll bank account (31,000). Worth clearing before these statements reach a lender or auditor.</p>
-              <p style={{ margin: 0 }}><b style={{ color: T.ink }}>Receivables presentation.</b> The AR control account carries SAR 0.01 while domestic receivables of SAR 7,375,338 sit under other assets. Presentation rather than substance, but it will be queried.</p>
-              <p style={{ margin: 0 }}><b style={{ color: T.ink }}>The bigger question.</b> Current year earnings on the balance sheet stand at (8,306,219). Two months of P&amp;L cannot explain that. The year-to-date picture is the conversation this leads to.</p>
-              <p style={{ margin: 0 }}><b style={{ color: T.ink }}>Four added accounts.</b> Withholding tax, S&amp;D recruitment fees, S&amp;D bonus and S&amp;D overtime carry May activity in the audited pack but no account code, and they do not appear in the June/July export at all. They are shown with codes beginning AUD- and nil in June and July. Confirm whether they were reclassified or simply stopped.</p>
-              <p style={{ margin: 0 }}><b style={{ color: T.ink }}>What is missing.</b> No budget and no prior-year comparative were provided, and there is no volume, price or customer mix data — so the revenue movement cannot yet be split into rate against volume.</p>
+              <p style={{ margin: 0 }}><b style={{ color: T.ink }}>Where the figures come from.</b> Every month on this page is the Zoho Books ledger export of 17 Aug 2026, Jan&ndash;Jul 2026, leaf accounts only — one source, one basis, and it is Tayseer&rsquo;s own system. Top line and bottom line tie to their P&amp;L to the riyal by construction.</p>
+              <p style={{ margin: 0 }}><b style={{ color: T.ink }}>The books moved after 10 Aug.</b> The export this dashboard previously carried showed July at (295,646). The same July in the 17 Aug export stands at (1,122,756) — advertising accruals, Al-Ameed listing fees, a near-expiry provision and a 144,339 management fee were all booked after the earlier cut. The Restatement tab walks the bridge account by account. Any figure Tayseer quotes from a version older than 17 Aug is out of date, including their own.</p>
+              <p style={{ margin: 0 }}><b style={{ color: T.ink }}>The year to date ties out.</b> Jan&ndash;Jul results sum to (10,004,412). Current-year earnings on the 17 Aug balance sheet stand at (10,049,454). The difference, (45,043), is August&rsquo;s first seventeen days — thinly booked, as a mid-month cut should be. The statements are internally consistent.</p>
+              <p style={{ margin: 0 }}><b style={{ color: T.ink }}>Management fees.</b> Jan 319,839 · Feb 354,856 · Mar 336,289 · Apr 277,937 · May 322,319 · Jun 310,592 · Jul 144,339. July is the first month near their claimed 150,000. Whether the reduction is real or re-labelled is exactly the question — July also carries 273,200 of new Al-Ameed listing fees and 456,323 of advertising.</p>
+              <p style={{ margin: 0 }}><b style={{ color: T.ink }}>Advertising is not a one-off.</b> With seven months visible it runs 84k&ndash;1,041k a month, averaging roughly 366k. June&rsquo;s 1.04M spike stands, but treating advertising as one-time in any month understates the run rate.</p>
+              <p style={{ margin: 0 }}><b style={{ color: T.ink }}>Returns are concentrated.</b> July returns of 493,629 are 11.5% of gross — and 359,562 of that is Nongshim, against Nongshim gross of roughly 1.59M: a 23% return rate on the founding brand. January was worse still (722,826 returned, 25% of gross). This is a product or channel problem, not noise.</p>
+              <p style={{ margin: 0 }}><b style={{ color: T.ink }}>Receivables.</b> The aging report shows 7,104,595 outstanding across 1,514 customers, against 7,353,061 on the balance sheet (domestic 6,799,040 + legal-action 554,021) — a 248,466 difference worth a one-line answer. Overdue stands at 1,817,333; legal cases at 554,021, fully provided; the general doubtful provision is 343,889. The largest single debtor, Ninja Retail, owes 1,095,087.</p>
+              <p style={{ margin: 0 }}><b style={{ color: T.ink }}>Balance sheet flags.</b> Balances sitting the wrong way round: advance payments to supplier (17,853), prepaid medical insurance (15,398), ATL marketing support (79,826), current account with O H N M Holding (330,994). Worth clearing before these statements reach a lender or auditor.</p>
+              <p style={{ margin: 0 }}><b style={{ color: T.ink }}>Still missing.</b> No budget, no prior-year comparative, and the sales-by-item report&rsquo;s July gross runs 5,004 below the ledger&rsquo;s — trivial, but worth a one-line answer. The management fee agreement and the new order&rsquo;s unit (SAR or cartons) remain the two open questions for Tuesday.</p>
               {dirty && (
                 <p style={{ margin: 0, color: T.blue }}>
                   <b>Figures edited.</b> Some numbers on this page no longer match the underlying accounts. Reset to actuals before circulating.

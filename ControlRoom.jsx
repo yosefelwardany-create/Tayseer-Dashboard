@@ -16,17 +16,21 @@ const T = {
 // in exactly one lever, so "Today (actuals)" reproduces that month's
 // real result to the riyal.
 // ------------------------------------------------------------------
-const DISCOUNT_LINES = new Set([
-  "Cash Discount, CN or Debit Memo", "LIQ Discount/Promotion",
-  "LIQ Discount/Promotion (Nongshim)", "Price discounts", "Price discounts - Al Ameed",
+// Buckets are keyed on account CODES: the 17 Aug export renamed and renumbered
+// several accounts, and codes are the stable spine.
+const COST_OF_SALES = (c) => c.startsWith("503000");
+const DISCOUNT_CODES = new Set([
+  "61502312",             // credit notes / debit memos
+  "61502306", "61502307", // LIQ discounts
+  "61502310", "61502311", // price discounts
+  "61502330", "61502332", // cash discount 3% (incl. Al-Ameed)
 ]);
-const PROMO_LINES = new Set([
-  "Promotion/ QTY Discount", "Promotion/ QTY Discount (Nongshim)", "Promotion/ QTY Discount - Al Ameed",
-]);
-const COMMISSION_LINES = new Set(["Sales staffs Commission", "Merchandising Expenses"]);
-const DISCARD_LINES = new Set([
-  "Allowance for near expiry inventory", "RTV", "Write-off ~ (Expiry/Damage) ~ Finished goods",
-]);
+const REBATE_CODES = new Set(["61502341", "61502355"]); // MT rebate, progressive rebate (OPEX)
+const PROMO_CODES = new Set(["61502300", "61502305", "61502308"]);
+const COMMISSION_CODES = new Set(["61500000", "61500001", "61502304"]); // sales staff, drivers, merchandising
+const DISCARD_CODES = new Set(["65900030", "65900010", "65900011"]);    // near-expiry, write-offs
+const FREIGHT = (c) => c.startsWith("654000");   // outward freight + internal transportation
+const FINES = (c) => c.startsWith("709");
 
 function deriveFrom(month) {
   const b = {
@@ -37,27 +41,27 @@ function deriveFrom(month) {
 
   for (const r of BASELINE) {
     const x = r[month] || 0;
-    if (r.s === "REV") { if (r.c === "41000000") rev += x; else ret += x; }
+    if (r.s === "REV") { if (r.c.startsWith("41001")) ret += x; else rev += x; }
     else if (r.s === "COGS") {
-      if (r.n === "Cost of sales/change in finished goods") b.costOfSales += x;
-      else if (DISCOUNT_LINES.has(r.n)) b.discounts += x;
-      else if (PROMO_LINES.has(r.n)) b.promos += x;
+      if (COST_OF_SALES(r.c)) b.costOfSales += x;
+      else if (DISCOUNT_CODES.has(r.c)) b.discounts += x;
+      else if (PROMO_CODES.has(r.c)) b.promos += x;
       else b.gna += x;
     }
     else if (r.s === "NOE") b.gna += x;
     else if (r.s === "NOI") b.gna -= x;
     else { // OPEX
       if (r.g === "Advertising & Marketing") b.advertising += x;
-      else if (COMMISSION_LINES.has(r.n)) b.commissions += x;
-      else if (DISCARD_LINES.has(r.n)) b.discards += x;
-      else if (r.n === "Rebate Expense") b.discounts += x;
+      else if (COMMISSION_CODES.has(r.c)) b.commissions += x;
+      else if (DISCARD_CODES.has(r.c)) b.discards += x;
+      else if (REBATE_CODES.has(r.c)) b.discounts += x;
       else if (r.g === "3PL / Warehousing" || r.g === "Outsourcing") b.warehouse += x;
       else if (r.g === "Payroll — Sales & Distribution") b.salesPay += x;
       else if (r.g === "Vehicles") b.fleet += x;
-      else if (r.n === "Outward freight/transportation (local)") b.freight += x;
-      else if (r.n === "Management Fees") b.mgmtFee += x;
-      else if (r.n === "Doubtful Debts Expense") b.badDebt += x;
-      else if (r.n === "Fines and penalties ~ Others") b.fines += x;
+      else if (FREIGHT(r.c)) b.freight += x;
+      else if (r.c === "63003000") b.mgmtFee += x;
+      else if (r.c === "65100100") b.badDebt += x;
+      else if (FINES(r.c)) b.fines += x;
       else b.gna += x;
     }
   }
@@ -436,8 +440,7 @@ export default function ControlRoom() {
           Levers are derived from {monthLabel} account by account: every line in the statement lands in exactly one lever, so the
           Actuals preset reproduces that month&rsquo;s real result to the riyal. Switching the baseline month rebases every lever and
           discards unsaved lever changes. Breakeven revenue assumes the base-basket margin structure and treats anchor contribution
-          as an offset to the fixed base. May comes from the audited pack, June and July from the ledger export — see the notes on
-          the Monthly P&amp;L before comparing across that boundary.
+          as an offset to the fixed base. All seven months come from the 17 Aug 2026 Zoho ledger export — one source, one basis.
         </p>
       </div>
     </div>

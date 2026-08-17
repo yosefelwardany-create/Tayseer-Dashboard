@@ -1,11 +1,19 @@
 import { useState } from "react";
 import ControlRoom from "./ControlRoom.jsx";
 import JulyBrief from "./JulyBrief.jsx";
+import PayrollBridge from "./PayrollBridge.jsx";
+import SalesTest from "./SalesTest.jsx";
+import Restatement from "./Restatement.jsx";
+import Stock from "./Stock.jsx";
 
 const T = { ink: "#1A2421", paper: "#F2F3EE", card: "#FBFBF8", line: "rgba(26,36,33,0.14)", inkSoft: "#4A5450" };
 
 const VIEWS = [
   { id: "monthly", label: "Monthly P&L", el: <JulyBrief /> },
+  { id: "restatement", label: "Restatement", el: <Restatement /> },
+  { id: "sales", label: "Sales projection", el: <SalesTest /> },
+  { id: "payroll", label: "Payroll", el: <PayrollBridge /> },
+  { id: "stock", label: "Stock & receivables", el: <Stock /> },
   { id: "control", label: "P&L control room", el: <ControlRoom /> },
 ];
 

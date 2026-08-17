@@ -1,11 +1,36 @@
 # Tayseer Trading — P&L
 
-Two views of the same business, one deployment:
+Six views of the same business, one deployment. Basis: the **17 Aug 2026 Zoho
+Books ledger export, January to July 2026** — one source for every month, and it
+is Tayseer's own system, so top and bottom line tie to their P&L by construction.
 
 | Tab | What it does |
 |---|---|
-| **Monthly P&L** | Any month against any other — May, June or July 2026, in either direction. Every account figure is editable: click a number, type a new one, and the KPIs, bridge, group charts and the underlying result all recalculate. |
-| **P&L control room** | Forward-looking scenario sliders. Pick May, June or July as the baseline and every lever rebases on that month's actuals, derived account by account — the Actuals preset reproduces the real result to the riyal. |
+| **Monthly P&L** | Any month against any other, Jan–Jul 2026. Every account figure is editable: click a number, type a new one, and the KPIs, bridge, group charts and the underlying result all recalculate. Includes the **Statement layout** editor (below). |
+| **Restatement** | The 10 Aug export against the 17 Aug export, month by month. July moved from (295,646) to (1,122,756) between the two — the tab shows exactly which accounts were booked in between. |
+| **Sales projection** | Tests the "5.3M and +100k profit" claim against July's closed cost structure, seven months of sales history (best month ever: May, 4.48M gross), and carton volume. The deciding assumption — which costs grow with sales — is a control, not a buried constant. |
+| **Payroll** | Tests the "it was one-time costs" explanation across seven months. Tick whichever lines are claimed non-recurring; whatever is left is what turns up again next month. |
+| **Stock & receivables** | The 17 Aug balance sheet and AR aging: inventory cover and provisions, the 400,000 + 100,000 order calculator (SAR vs cartons — the unit changes the verdict entirely), aging buckets and the largest debtors. |
+| **P&L control room** | Forward-looking scenario sliders. Pick any month as the baseline and every lever rebases on that month's actuals, derived account by account — the Actuals preset reproduces the real result to the riyal. |
+
+## Statement layout
+
+Tayseer files under 12 headers. The layout editor on the Monthly P&L moves any
+account to any header, renames headers (renaming onto an existing name merges
+the two), reorders them, and ships three presets — as filed, a 5-header standard
+P&L, and a 7-header split that isolates payroll.
+
+Regrouping is presentation, never arithmetic. Total operating expenses is taken
+from the statement section, not from the sum of the headers, and the panel
+recomputes it both ways and shows the two figures side by side. They have to
+agree, so no regrouping can be argued to have moved the result.
+
+Layout saves with **Save changes**, in the same row as the figures, and is
+shared — everyone opening the link sees the same statement. Payloads saved
+before the editor existed load unchanged.
+
+The control room derives its levers from the **filed** groups, deliberately:
+moving a header on the P&L must not silently redefine what a lever means.
 
 Both tabs save to the same Neon database. Anyone with the link sees the last saved
 version, and "Save changes" overwrites it for everyone.
@@ -14,24 +39,19 @@ version, and "Save changes" overwrites it for everyone.
 
 Pick the two months at the top. **Swap** reverses the direction. **Sort** reorders the
 expense groups and the lines inside them by statement order, biggest change, biggest amount,
-or name. Add a fourth month by
-appending a key to `MONTHS` in `JulyBrief.jsx` and the matching field to every row in
-`data.js` — nothing else needs touching.
+or name. Add a month (e.g. August, when it closes) by appending a key to `MONTHS` and the
+matching field to every row in `data.js` — nothing else needs touching.
 
-### A warning about sources
+### Sources and the restatement
 
-May 2026 comes from the audited analysis pack. June and July come from the later ledger
-export. **They disagree on June**: 16 accounts differ, and the ledger shows June a total of
-SAR 189,706 worse than the audited pack.
+All seven months come from one file: the Zoho ledger export of 17 Aug 2026, leaf accounts
+plus parent accounts' own postings (Zoho parents can carry both — dropping them breaks the
+tie to the balance sheet). Jan–Jul results sum to (10,004,412); current-year earnings on
+the 17 Aug balance sheet are (10,049,454); the (45,043) difference is 1–17 August.
 
-- **June to July** is clean — one source on both sides.
-- **May to June** and **May to July** carry that basis difference. The app flags this in
-  amber whenever May is one of the two months.
-
-Reconcile the two Junes before either month goes to a lender, an auditor or the board.
-
-Four accounts (codes `AUD-01` to `AUD-04`) have May activity in the audited pack, carry no
-account code there, and are absent from the June/July export. They show nil in those months.
+The previous build (10 Aug export, May restated from the audited pack) is preserved
+verbatim in `legacy.js` and drives the Restatement tab. Regenerate everything from fresh
+Zoho exports with `scratchpad/zoho/build_data.py` (extract scripts alongside it).
 
 ## Editing figures
 
@@ -98,17 +118,26 @@ CREATE TABLE scenarios (
 );
 ```
 
-Rows are keyed by name: `default` for the control room, `july2026` for the July brief.
+Rows are keyed by name: `default` for the control room, `ledger2026` for the Monthly P&L
+(the old `july2026` row is ignored — it carries the pre-restatement chart of accounts).
 Nothing to create by hand — each row is inserted the first time you press Save changes.
 
 ## Files
 
 ```
-data.js         May, June and July figures plus the MONTHS list — edit here to change the baseline
-JulyBrief.jsx   The Monthly P&L: month picker, sorting, editable figures
-ControlRoom.jsx The scenario sliders, rebased on any month
-App.jsx         Tab shell
-server.js       Express API + static hosting
+data.js           Jan–Jul 2026 figures plus the MONTHS list — generated from the 17 Aug Zoho export
+legacy.js         The 10 Aug baseline, verbatim — drives the Restatement tab. Do not edit.
+facts.js          Balance sheet, AR aging and sales-by-item facts — generated alongside data.js
+layout.js         Which header each account sits under; presets and the totals-agree check
+finance.js        Variable/fixed cost split and the payroll scope, shared by the analysis tabs
+JulyBrief.jsx     The Monthly P&L: month picker, sorting, editable figures, statement layout
+Restatement.jsx   10 Aug export vs 17 Aug export, month by month
+SalesTest.jsx     The sales projection test, with seven months of sales history
+PayrollBridge.jsx The payroll one-time test
+Stock.jsx         Inventory, the new-order calculator, receivables aging
+ControlRoom.jsx   The scenario sliders, rebased on any month
+App.jsx           Tab shell
+server.js         Express API + static hosting
 ```
 
 Adding a month means two edits: a key in `MONTHS` and the matching field on every row in
