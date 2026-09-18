@@ -3,8 +3,15 @@
 // arguments below are about the cost base Tayseer actually reported, so
 // normalising it silently would defeat the purpose.
 //
-// Basis: the 17 Aug 2026 Zoho ledger export, January to July. Revenue and
-// returns are channel subaccounts (41000001-3 gross, 41001001-3 returns).
+// Basis: the Zoho ledger exports of 17 Aug 2026 (Jan–Jul) and 18 Sep 2026
+// (Aug), same chart of accounts. Revenue and returns are channel subaccounts
+// (41000001-3 gross, 41001001-3 returns).
+//
+// August is the first profitable month of the year (+26,436), so the levers
+// below now cut both ways: `stripReleases` exists because August's result
+// leans on roughly 104,000 of provision releases and expense reversals that
+// do not recur, and `normaliseAd` matters more than ever because August
+// booked 30,530 of advertising against a run rate above 320,000.
 
 import { BASELINE, MONTHS } from "./data.js";
 
@@ -44,22 +51,51 @@ export const TREATMENTS = [
 ];
 
 export const AD_ACCOUNT = "65100120";      // Advertising & Promotions
-export const LISTING_ACCOUNT = "65410002"; // Al-Ameed listing & registration (273,200 in July)
 export const MGMT_ACCOUNT = "63003000";    // Management Fees
-export const DOUBT_ACCOUNT = "65100100";   // Doubtful debts (July is a -106,000 credit)
+export const DOUBT_ACCOUNT = "65100100";   // Doubtful debts: Jul a -106,000 credit, Aug a +41,541 charge
+
+// Listing / registration fees that are one-time by their own description.
+// 65410006 (monthly contractual listing) and 65410005 (platform & portal
+// service fees) are deliberately NOT here — both are recurring by name.
+export const LISTING_ACCOUNTS = [
+  "65410002", // Al-Ameed listing & registration — 273,200 in July, 661 in August
+  "65410004", // Key accounts new branch opening ONE TIME fees — 21,505 in August
+];
+export const LISTING_ACCOUNT = LISTING_ACCOUNTS[0]; // kept for older callers
+
+// Provision releases and expense reversals. A credit on one of these flatters
+// the month it lands in and says nothing about the run rate, so `stripReleases`
+// adds it back. Only credits are touched — a charge on the same account is a
+// real cost and stays.
+export const RELEASE_ACCOUNTS = [
+  "65900030", // Allowance for near expiry inventory
+  "70900000", // Fines and penalties ~ Others
+  "65100090", // Ramadan party expenses
+  "60000032", // Insurance ~ Marine Cargo Open Cover
+  "72020000", // Exchange gain or loss
+  "61201000", // Travelling expenses ~ tickets inside country
+  "61202000", // Travelling expenses ~ tickets outside country
+];
 
 const monthKeys = MONTHS.map((m) => m.key);
+export const SPAN = `${MONTHS[0].short}–${MONTHS[MONTHS.length - 1].short}`;
 
-// Advertising runs 84k-1,041k a month; the honest run rate is the year's average.
+// Advertising runs 31k-1,041k a month; the honest run rate is the year's average.
 export const AD_RUN_RATE =
   monthKeys.reduce((a, m) => a + total(m, (r) => r.c === AD_ACCOUNT), 0) / monthKeys.length;
 
-// Management fee: 278k-355k every month until July's 144,339
+// Management fee: 278k-355k a month until July's 144,339 and August's 157,694 —
+// the two together average 151,016, which is the 150,000 they claimed.
 export const MGMT_BY_MONTH = Object.fromEntries(
   monthKeys.map((m) => [m, total(m, (r) => r.c === MGMT_ACCOUNT)])
 );
 export const MGMT_AVG =
   monthKeys.reduce((a, m) => a + MGMT_BY_MONTH[m], 0) / monthKeys.length;
+
+// What the month's result owes to credits that will not come back.
+export const releasesIn = (month) =>
+  RELEASE_ACCOUNTS.map((c) => ({ c, v: total(month, (r) => r.c === c) }))
+    .filter((x) => x.v < -0.005);
 
 // ------------------------------------------------------------------
 // The cost structure of one month, split into what moves with revenue
@@ -69,9 +105,10 @@ export function structure(month, opts = {}) {
   const {
     treatment = "trade",
     mgmtFee = null,          // SAR/month going forward; null = leave as booked
-    normaliseAd = false,     // advertising at the Jan-Jul run rate instead of the month's booking
-    excludeListing = false,  // treat the Al-Ameed listing fee as one-time
+    normaliseAd = false,     // advertising at the whole-period run rate instead of the month's booking
+    excludeListing = false,  // treat the one-time listing / registration fees as one-time
     normaliseDoubt = false,  // doubtful debts at nil instead of the month's charge/credit
+    stripReleases = false,   // add back provision releases and expense reversals
   } = opts;
 
   const t = TREATMENTS.find((x) => x.id === treatment) || TREATMENTS[1];
@@ -96,18 +133,23 @@ export function structure(month, opts = {}) {
   };
 
   if (excludeListing) {
-    const booked = total(month, (r) => r.c === LISTING_ACCOUNT);
+    const booked = total(month, (r) => LISTING_ACCOUNTS.includes(r.c));
     if (Math.abs(booked) > 0.005)
-      shift(BASELINE.find((r) => r.c === LISTING_ACCOUNT), -booked, "Al-Ameed listing fee set aside");
+      shift(BASELINE.find((r) => r.c === LISTING_ACCOUNTS[0]), -booked, "One-time listing & registration fees set aside");
   }
   if (normaliseAd) {
     const booked = total(month, (r) => r.c === AD_ACCOUNT);
-    shift(null, AD_RUN_RATE - booked, "Advertising at the Jan–Jul run rate");
+    shift(null, AD_RUN_RATE - booked, `Advertising at the ${SPAN} run rate`);
   }
   if (normaliseDoubt) {
     const booked = total(month, (r) => r.c === DOUBT_ACCOUNT);
     if (Math.abs(booked) > 0.005)
-      shift(null, -booked, booked < 0 ? "July's doubtful-debt credit removed" : "Doubtful-debt charge set aside");
+      shift(null, -booked, booked < 0 ? "Doubtful-debt credit removed" : "Doubtful-debt charge set aside");
+  }
+  if (stripReleases) {
+    const rel = releasesIn(month);
+    const sum = rel.reduce((a, x) => a + x.v, 0);
+    if (rel.length) shift(null, -sum, `Provision releases and reversals added back (${rel.length} lines)`);
   }
   if (mgmtFee !== null) {
     const booked = total(month, (r) => r.c === MGMT_ACCOUNT);

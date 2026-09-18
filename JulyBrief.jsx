@@ -179,8 +179,8 @@ function RiyalStrip({ cogs, opex, kept }) {
 // ------------------------------------------------------------------
 export default function JulyBrief() {
   const [rows, setRows] = useState(() => BASELINE.map((r) => ({ ...r })));
-  const [mA, setMA] = useState("jun"); // base month
-  const [mB, setMB] = useState("jul"); // month being compared
+  const [mA, setMA] = useState("jul"); // base month
+  const [mB, setMB] = useState("aug"); // month being compared
   const [basis, setBasis] = useState("rep"); // rep | norm
   const [sortBy, setSortBy] = useState("statement"); // statement | change | size | name
   const [openGroups, setOpenGroups] = useState({});
@@ -197,12 +197,15 @@ export default function JulyBrief() {
     fetch(`/api/scenario/${SCENARIO}`)
       .then((r) => r.json())
       .then((res) => {
-        // Accept only rows saved on this basis: same account count, monthly
-        // fields present. Anything else is a stale payload from an older build.
+        // Accept only rows saved on this basis: same account count and EVERY
+        // month in MONTHS present on the first row. The month check is what
+        // makes adding a month safe — a payload saved before August existed
+        // has no `aug` field, so it is rejected and the page falls back to
+        // BASELINE rather than rendering undefined figures.
         const compatible =
           res.data && Array.isArray(res.data.rows) &&
           res.data.rows.length === BASELINE.length &&
-          res.data.rows[0] && res.data.rows[0].jan !== undefined;
+          res.data.rows[0] && MONTHS.every((m) => res.data.rows[0][m.key] !== undefined);
         if (compatible) {
           setRows(res.data.rows);
           setUpdatedAt(res.updated_at);
@@ -260,6 +263,9 @@ export default function JulyBrief() {
   const normGain = nL.profit - nJ.profit;
   const oneoffSwing = repGain - normGain;
   const scale = Math.max(Math.abs(repGain), 1);
+  // Returns can be the month's worst line or its best — August is the first
+  // month where it is the best, so the panel reads either way.
+  const retImproved = rL.retPct < rJ.retPct;
 
   const oneoffTotal = (m) => rows.filter((r) => r.o).reduce((a, r) => a + r[m], 0);
   const flagged = rows.filter((r) => r.note);
@@ -386,8 +392,8 @@ export default function JulyBrief() {
             </p>
           </div>
           <div style={{ fontSize: 11.5, letterSpacing: ".08em", textTransform: "uppercase", color: T.inkSoft, lineHeight: 1.9, textAlign: "right" }}>
-            Zoho ledger export <b style={{ color: T.ink }}>17 Aug 2026</b><br />
-            Jan–Jul · accrual · figures <b style={{ color: T.ink }}>SAR</b>
+            Zoho exports <b style={{ color: T.ink }}>17 Aug</b> + <b style={{ color: T.ink }}>18 Sep 2026</b><br />
+            Jan–Aug · accrual · figures <b style={{ color: T.ink }}>SAR</b>
           </div>
         </header>
 
@@ -505,9 +511,14 @@ export default function JulyBrief() {
                   <div style={{ fontSize: 12.5, color: T.inkSoft, lineHeight: 1.5 }}>{x.cap}</div>
                   <div style={{
                     display: "inline-block", marginTop: 8, padding: "3px 10px", borderRadius: 999, fontSize: 11.5, fontWeight: 600,
-                    background: "rgba(29,158,117,0.12)", color: T.profit,
+                    background: x.gain >= 0 ? "rgba(29,158,117,0.12)" : "rgba(192,68,46,0.12)",
+                    color: x.gain >= 0 ? T.profit : T.loss,
                   }}>
-                    {x.gain >= 0 ? "Loss cut" : "Loss widened"} {Math.abs(Math.round((x.gain / Math.abs(x.base || 1)) * 100))}% against {shortA}
+                    {x.base < 0 && x.v >= 0
+                      ? `Loss to profit against ${shortA}`
+                      : x.base >= 0 && x.v < 0
+                        ? `Profit to loss against ${shortA}`
+                        : `${x.base < 0 ? (x.gain >= 0 ? "Loss cut" : "Loss widened") : (x.gain >= 0 ? "Profit up" : "Profit down")} ${Math.abs(Math.round((x.gain / Math.abs(x.base || 1)) * 100))}% against ${shortA}`}
                   </div>
                 </div>
               ))}
@@ -531,22 +542,27 @@ export default function JulyBrief() {
             <p style={{ fontSize: 12.5, color: T.inkSoft, lineHeight: 1.6, margin: "12px 0 0" }}>
               Of the SAR {fmt(Math.abs(repGain))} the reported result {repGain >= 0 ? "improved" : "worsened"} by, SAR{" "}
               {fmt(Math.abs(oneoffSwing))} is one-off and non-cash charges not repeating between the two months. The
-              underlying movement is SAR {fmt(normGain)}. On the underlying basis {labelOf(mB)} loses roughly SAR{" "}
-              {fmt(-nL.profit)} before any of it is explained by trading.
+              underlying movement is SAR {fmt(normGain)}. On the underlying basis {labelOf(mB)}{" "}
+              {nL.profit >= 0
+                ? <>makes roughly SAR {fmt(nL.profit)} — before asking how much of that is provision releases rather than trading.</>
+                : <>loses roughly SAR {fmt(-nL.profit)} before any of it is explained by trading.</>}
             </p>
           </Panel>
 
           {/* Returns */}
-          <Panel title="The returns problem" tint={T.loss} hint="largest adverse swing in the file">
-            <div style={{ fontFamily: "'Fraunces', serif", fontSize: 27, fontWeight: 700, color: T.loss, fontVariantNumeric: "tabular-nums" }}>
+          <Panel title={retImproved ? "Returns, improved" : "The returns problem"} tint={retImproved ? T.profit : T.loss}
+                 hint={retImproved ? "largest favourable swing in the file" : "largest adverse swing in the file"}>
+            <div style={{ fontFamily: "'Fraunces', serif", fontSize: 27, fontWeight: 700, color: retImproved ? T.profit : T.loss, fontVariantNumeric: "tabular-nums" }}>
               {fmt(rL.ret)}
             </div>
             <div style={{ fontSize: 13, color: T.inkSoft, lineHeight: 1.6, margin: "8px 0 14px" }}>
               Gross sales moved {pct((rL.rev - rJ.rev) / Math.abs(rJ.rev))} month on month. Returns moved{" "}
-              {pct((Math.abs(rL.ret) - Math.abs(rJ.ret)) / Math.abs(rJ.ret || 1), 0)} and swallowed it — net revenue finished{" "}
+              {pct((Math.abs(rL.ret) - Math.abs(rJ.ret)) / Math.abs(rJ.ret || 1), 0)}
+              {retImproved ? " and more than offset it" : " and swallowed it"} — net revenue finished{" "}
               <b style={{ color: tone(rL.net - rJ.net) }}>{pct((rL.net - rJ.net) / Math.abs(rJ.net))}</b>.
+              {retImproved && <> Worth {fmt(Math.abs(rJ.ret) - Math.abs(rL.ret))} of revenue that {shortA} gave away.</>}
             </div>
-            {[["a", labelOf(mA), rJ.retPct, "rgba(26,36,33,0.25)"], ["b", labelOf(mB), rL.retPct, T.loss]].map(([k, lab, v, c]) => (
+            {[["a", labelOf(mA), rJ.retPct, "rgba(26,36,33,0.25)"], ["b", labelOf(mB), rL.retPct, retImproved ? T.profit : T.loss]].map(([k, lab, v, c]) => (
               <div key={k} style={{ display: "grid", gridTemplateColumns: "70px 1fr 52px", gap: 8, alignItems: "center", marginBottom: 6 }}>
                 <span style={{ fontSize: 12.5, color: T.inkSoft }}>{lab}</span>
                 <div style={{ height: 14, background: "rgba(26,36,33,0.05)", borderRadius: 3, position: "relative" }}>
@@ -557,10 +573,21 @@ export default function JulyBrief() {
             ))}
             <div style={{ fontSize: 11.5, color: "#9AA49D", marginTop: 4 }}>Returns as a share of gross sales</div>
             <ul style={{ margin: "16px 0 0", paddingLeft: 18, fontSize: 12.5, color: T.inkSoft, lineHeight: 1.7 }}>
-              <li>One customer rejecting a shipment, or spread across the base?</li>
-              <li>Expiry-driven? That would connect it to the near-expiry allowance and the RTV line.</li>
-              <li>Were the goods credited back into inventory, or written off?</li>
-              <li>Gross margin still improved. Confirm the returns carried cost back out with them — if not, margin is overstated.</li>
+              {retImproved ? (
+                <>
+                  <li>What changed — tighter order acceptance, fresher stock, or a channel dropped?</li>
+                  <li>Nongshim drove it: returns there fell from 359,562 in July to 86,677. Is that fix permanent?</li>
+                  <li>This is the one improvement that is operational rather than an accounting release. It is worth more than every provision credit in the month combined, so it deserves the most detailed answer.</li>
+                  <li>Confirm nothing was simply deferred into September by holding credit notes back.</li>
+                </>
+              ) : (
+                <>
+                  <li>One customer rejecting a shipment, or spread across the base?</li>
+                  <li>Expiry-driven? That would connect it to the near-expiry allowance and the RTV line.</li>
+                  <li>Were the goods credited back into inventory, or written off?</li>
+                  <li>Gross margin still improved. Confirm the returns carried cost back out with them — if not, margin is overstated.</li>
+                </>
+              )}
             </ul>
           </Panel>
 
@@ -904,15 +931,20 @@ export default function JulyBrief() {
           {/* Notes */}
           <Panel title="Notes and caveats" tint={T.inkSoft} span>
             <div style={{ fontSize: 13, color: T.inkSoft, lineHeight: 1.65, display: "grid", gap: 10, maxWidth: 860 }}>
-              <p style={{ margin: 0 }}><b style={{ color: T.ink }}>Where the figures come from.</b> Every month on this page is the Zoho Books ledger export of 17 Aug 2026, Jan&ndash;Jul 2026, leaf accounts only — one source, one basis, and it is Tayseer&rsquo;s own system. Top line and bottom line tie to their P&amp;L to the riyal by construction.</p>
-              <p style={{ margin: 0 }}><b style={{ color: T.ink }}>The books moved after 10 Aug.</b> The export this dashboard previously carried showed July at (295,646). The same July in the 17 Aug export stands at (1,122,756) — advertising accruals, Al-Ameed listing fees, a near-expiry provision and a 144,339 management fee were all booked after the earlier cut. The Restatement tab walks the bridge account by account. Any figure Tayseer quotes from a version older than 17 Aug is out of date, including their own.</p>
-              <p style={{ margin: 0 }}><b style={{ color: T.ink }}>The year to date ties out.</b> Jan&ndash;Jul results sum to (10,004,412). Current-year earnings on the 17 Aug balance sheet stand at (10,049,454). The difference, (45,043), is August&rsquo;s first seventeen days — thinly booked, as a mid-month cut should be. The statements are internally consistent.</p>
-              <p style={{ margin: 0 }}><b style={{ color: T.ink }}>Management fees.</b> Jan 319,839 · Feb 354,856 · Mar 336,289 · Apr 277,937 · May 322,319 · Jun 310,592 · Jul 144,339. July is the first month near their claimed 150,000. Whether the reduction is real or re-labelled is exactly the question — July also carries 273,200 of new Al-Ameed listing fees and 456,323 of advertising.</p>
-              <p style={{ margin: 0 }}><b style={{ color: T.ink }}>Advertising is not a one-off.</b> With seven months visible it runs 84k&ndash;1,041k a month, averaging roughly 366k. June&rsquo;s 1.04M spike stands, but treating advertising as one-time in any month understates the run rate.</p>
-              <p style={{ margin: 0 }}><b style={{ color: T.ink }}>Returns are concentrated.</b> July returns of 493,629 are 11.5% of gross — and 359,562 of that is Nongshim, against Nongshim gross of roughly 1.59M: a 23% return rate on the founding brand. January was worse still (722,826 returned, 25% of gross). This is a product or channel problem, not noise.</p>
-              <p style={{ margin: 0 }}><b style={{ color: T.ink }}>Receivables.</b> The aging report shows 7,104,595 outstanding across 1,514 customers, against 7,353,061 on the balance sheet (domestic 6,799,040 + legal-action 554,021) — a 248,466 difference worth a one-line answer. Overdue stands at 1,817,333; legal cases at 554,021, fully provided; the general doubtful provision is 343,889. The largest single debtor, Ninja Retail, owes 1,095,087.</p>
-              <p style={{ margin: 0 }}><b style={{ color: T.ink }}>Balance sheet flags.</b> Balances sitting the wrong way round: advance payments to supplier (17,853), prepaid medical insurance (15,398), ATL marketing support (79,826), current account with O H N M Holding (330,994). Worth clearing before these statements reach a lender or auditor.</p>
-              <p style={{ margin: 0 }}><b style={{ color: T.ink }}>Still missing.</b> No budget, no prior-year comparative, and the sales-by-item report&rsquo;s July gross runs 5,004 below the ledger&rsquo;s — trivial, but worth a one-line answer. The management fee agreement and the new order&rsquo;s unit (SAR or cartons) remain the two open questions for Tuesday.</p>
+              <p style={{ margin: 0 }}><b style={{ color: T.ink }}>August is the first profitable month of 2026: +26,436.</b> After seven consecutive losses totalling (10,004,412), August closed in the black. The August cash flow statement carries Net Income of 26,436.22 — the same figure this P&amp;L produces — so the two statements agree. It is a real result on their own books, and the rest of these notes are about how much of it repeats.</p>
+              <p style={{ margin: 0 }}><b style={{ color: T.ink }}>Cost did it, not sales.</b> Gross sales <i>fell</i>, 4,298,345 to 4,179,656. What moved was the cost base: operating expenses 2,127,557 &rarr; 1,363,709 (down 763,849, and 948,407 below the Jan&ndash;Jul average of 2,312,116), and gross margin 26.8% &rarr; 35.1% of net revenue. The three largest swings are advertising (456,323 &rarr; 30,530), the near-expiry provision (248,640 charge &rarr; 33,222 release) and the Al-Ameed listing fee (273,200 &rarr; 661). Set the comparison to Jul against Aug and the group bridge shows every one of them.</p>
+              <p style={{ margin: 0 }}><b style={{ color: T.ink }}>About 104,000 of the profit is credits coming back.</b> August books seven credit lines that are money returning, not cost avoided: near-expiry allowance (33,222), fines and penalties (28,818), the Ramadan party accrual (21,000), marine cargo insurance (12,812), an exchange gain (6,655) and two travel-ticket reversals (1,129). Add them back and August is (77,201). Advertising at the Jan&ndash;Aug run rate of 324,173 instead of 30,530 takes it to roughly (371,000). The Sales projection tab has both as switches.</p>
+              <p style={{ margin: 0 }}><b style={{ color: T.ink }}>Breakeven leaves 102,000 of headroom.</b> At August&rsquo;s own contribution margin the month needed 3,894,597 of net revenue to break even and made 3,996,637 — 2.6% of a month&rsquo;s sales. A single returned container, or advertising at any normal level, erases the profit.</p>
+              <p style={{ margin: 0 }}><b style={{ color: T.ink }}>September has already given it back.</b> Jan&ndash;Aug results sum to (9,977,975). Current-year earnings on the 18 Sep balance sheet stand at (10,580,317). The difference, (602,341), is the first eighteen days of September — a pace of roughly a million a month, worse than August by an order of magnitude. Whatever August was, one month of it does not settle the question.</p>
+              <p style={{ margin: 0 }}><b style={{ color: T.ink }}>The profit was funded, not earned in cash.</b> August&rsquo;s cash flow statement shows operating cash of (12,441) — nil — while inventory grew 1,155,893 and receivables 662,494. Cash rose 606,366 only because the shareholders put in another 2,340,484, taking cumulative contributions to 15,329,802. The Stock &amp; receivables tab carries the full bridge.</p>
+              <p style={{ margin: 0 }}><b style={{ color: T.ink }}>Returns: the most durable part of the improvement.</b> August returns of 183,019 are 4.4% of gross against July&rsquo;s 11.5%, and Nongshim alone fell from 359,562 to 86,677. That is roughly 273,000 a month of recovered revenue and it is an operational fix, not an accounting one — the one line worth asking them to explain in detail, because if it holds it is worth more than every release in the month combined.</p>
+              <p style={{ margin: 0 }}><b style={{ color: T.ink }}>Management fees, answered.</b> Jan 319,839 · Feb 354,856 · Mar 336,289 · Apr 277,937 · May 322,319 · Jun 310,592 · Jul 144,339 · Aug 157,694. Two months now sit near the claimed 150,000 and average 151,016, so the reduction looks real rather than a one-month re-label. It remains the largest single controllable cost and the agreement is still unseen.</p>
+              <p style={{ margin: 0 }}><b style={{ color: T.ink }}>Nine accounts appear for the first time in August.</b> Marketing agency fees (23,327), key-account branch-opening fees (21,505 — one-time by its own name), monthly contractual listing fees (5,843), platform &amp; portal service fees (3,000), office supplies, other employee benefit, other expense, an out-of-country taxi line and meeting-room fees. They carry zero for Jan&ndash;Jul because they were not posted then. The listing family is now split across four accounts, which is an improvement on July&rsquo;s single 273,200 lump.</p>
+              <p style={{ margin: 0 }}><b style={{ color: T.ink }}>Advertising is not a one-off.</b> Across eight months it runs 31k&ndash;1,041k, averaging 324,173. August&rsquo;s 30,530 is the lowest of the year by a wide margin. Ask whether the spend was cut or merely deferred — a deferred campaign is a September cost, not a saving.</p>
+              <p style={{ margin: 0 }}><b style={{ color: T.ink }}>Rebates went the other way.</b> MT Rebate Expense (Nongshim) rose 143,613 &rarr; 245,964 and the balance sheet carries a Rebate &amp; KA provision of 2,313,450. Trade terms are getting more expensive while everything else was cut, and that is the line most likely to bite in September.</p>
+              <p style={{ margin: 0 }}><b style={{ color: T.ink }}>Receivables and aging are on different dates.</b> The balance sheet is 18 Sep (domestic 7,480,167 + legal action 542,044, up from 6,799,040 + 554,021 a month earlier); the aging report on the Stock tab is still the 17 Aug one, because no fresher export was provided. The two cannot be reconciled until the aging is rerun — worth asking for alongside September&rsquo;s P&amp;L.</p>
+              <p style={{ margin: 0 }}><b style={{ color: T.ink }}>Balance sheet flags.</b> On the 18 Sep sheet these still sit the wrong way round: advance payments to supplier (345,352), BTL funds to be received from Al-Ameed (229,343), BTL marketing support (89,133), current account with O H N M Holding (193,958), salary compensation provision (142,987) and provision &ndash; air ticket (5,922). Prepaid medical insurance and ATL marketing support, flagged last month, have been cleared. Worth fixing the rest before these statements reach a lender or auditor.</p>
+              <p style={{ margin: 0 }}><b style={{ color: T.ink }}>What the August pack closed and what it did not.</b> Closed: the sales-by-item report now ties to the ledger exactly (July ran 5,005 light), and the management fee question has a second data point. Still open: no budget, no prior-year comparative, no refreshed AR aging, and no explanation of whether the advertising and listing-fee reductions are permanent. Those are the questions August buys you the right to ask.</p>
               {dirty && (
                 <p style={{ margin: 0, color: T.blue }}>
                   <b>Figures edited.</b> Some numbers on this page no longer match the underlying accounts. Reset to actuals before circulating.

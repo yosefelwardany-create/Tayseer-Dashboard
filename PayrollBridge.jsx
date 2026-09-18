@@ -33,8 +33,8 @@ function Panel({ title, tint, hint, subtotal, children, span }) {
 
 export default function PayrollBridge() {
   const [oneTime, setOneTime] = useState(DEFAULT_ONE_TIME);
-  const [mA, setMA] = useState("jun");
-  const [mB, setMB] = useState("jul");
+  const [mA, setMA] = useState("jul");
+  const [mB, setMB] = useState("aug");
 
   const toggle = (code) =>
     setOneTime((p) => (p.includes(code) ? p.filter((c) => c !== code) : [...p, code]));
@@ -172,7 +172,7 @@ export default function PayrollBridge() {
             </div>
           </Panel>
 
-          <Panel title="Payroll by month" tint={T.blue} hint="all three months, as filed" span>
+          <Panel title="Payroll by month" tint={T.blue} hint={`all ${MONTHS.length} months, as filed`} span>
             <div style={{ overflowX: "auto" }}>
               <table>
                 <thead>

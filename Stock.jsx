@@ -42,9 +42,9 @@ export default function Stock() {
   // Recent run rates, from the ledger and the sales report
   const cogs3 = useMemo(() => {
     const S = (m) => BASELINE.filter((r) => r.s === "COGS").reduce((a, r) => a + (r[m] || 0), 0);
-    return (S("may") + S("jun") + S("jul")) / 3;
+    return (S("jun") + S("jul") + S("aug")) / 3;
   }, []);
-  const cartons3 = (sm.may.cartons + sm.jun.cartons + sm.jul.cartons) / 3;
+  const cartons3 = (sm.jun.cartons + sm.jul.cartons + sm.aug.cartons) / 3;
 
   // The order: 400,000 + 100,000, unit unknown — that ambiguity is the point
   const [orderValue, setOrderValue] = useState(500000);
@@ -57,7 +57,9 @@ export default function Stock() {
   const pctOfVelocity = unit === "sar" ? sellPerMonth / cogs3 : sellPerMonth / cartons3;
 
   const bsRecTotal = rec.domestic + rec.legalAction;
-  const agingGap = bsRecTotal - ag.totalOutstanding;
+  const priorRecTotal = rec.priorDomestic + 554021.0;   // 17 Aug balance sheet
+  const invGrowth = inv.tradingGoods - inv.priorTradingGoods;
+  const cash = FACTS.cash;
 
   const buckets = Object.entries(ag.buckets);
   const maxBucket = Math.max(...buckets.map(([, v]) => v), 1);
@@ -103,16 +105,18 @@ export default function Stock() {
             What the order lands on<span style={{ color: T.sand }}>.</span>
           </h1>
           <p style={{ margin: "8px 0 0", fontSize: 14.5, color: T.inkSoft, maxWidth: 700 }}>
-            They plan a new order of 400,000 + 100,000 — unit unconfirmed — into 18 months of product lifetime.
-            This is the stock and the debtor book it lands on.
+            August turned a profit on the P&amp;L and consumed cash on the balance sheet: inventory absorbed{" "}
+            {fmt(-cash.inventoryBuild)} of cash in the month and receivables another {fmt(-cash.receivablesBuild)},
+            covered by a fresh {fmt(cash.shareholderContributionAug)} from the shareholders. This is the stock and the
+            debtor book the new order of 400,000 + 100,000 — unit still unconfirmed — would land on.
           </p>
         </header>
 
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 20 }}>
-          {kpi("Inventory, net", M(netInv), `${monthsCover.toFixed(1)} months of cover at current COGS`)}
+          {kpi("Inventory, net", M(netInv), `${monthsCover.toFixed(1)} months of cover · ${fmt(invGrowth)} in August`, T.sand)}
           {kpi("Already provided against", M(provisions), `${(provisions / grossInv * 100).toFixed(1)}% of gross stock`, T.loss)}
-          {kpi("Receivables outstanding", M(ag.totalOutstanding), `${ag.customers} customers · aging report`)}
-          {kpi("Overdue", M(ag.overdue), `${(ag.overdue / ag.totalOutstanding * 100).toFixed(0)}% of the book`, T.sand)}
+          {kpi("Receivables, balance sheet", M(bsRecTotal), `${fmt(bsRecTotal - priorRecTotal)} since 17 Aug`, T.sand)}
+          {kpi("Shareholder money, August", M(cash.shareholderContributionAug), `${M(cash.shareholderContributionCumulative)} put in to date`, T.loss)}
         </div>
 
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", gap: 14 }}>
@@ -132,9 +136,12 @@ export default function Stock() {
               </div>
             ))}
             <p style={{ fontSize: 12.5, color: T.inkSoft, lineHeight: 1.65, margin: "12px 0 0" }}>
-              A sixth of the stock is already written down: the near-expiry provision alone is {fmt(-inv.provisionNearExpiry)},
-              built up in May–July charges of 42,250 / 321,891 / 248,640. Shelf life is already a live problem in the
-              existing book — before any new order arrives.
+              The near-expiry provision stands at {fmt(-inv.provisionNearExpiry)} — built up in May&ndash;July charges of
+              42,250 / 321,891 / 248,640, then <b>released 33,222 in August</b>, which is part of why August showed a
+              profit. Meanwhile the stock itself grew {fmt(invGrowth)} in the month, from {M(inv.priorTradingGoods)} on{" "}
+              {inv.priorAsOf} to {M(inv.tradingGoods)}. Cover is {monthsCover.toFixed(1)} months at the Jun&ndash;Aug cost
+              of sales run rate. Buying more stock while releasing the expiry provision on the stock already held is a
+              combination worth asking about directly.
             </p>
           </Panel>
 
@@ -169,12 +176,12 @@ export default function Stock() {
             }}>
               {unit === "sar"
                 ? `If the order is SAR at cost, it is ${(orderMonths).toFixed(2)} months of cost of sales — absorbable, provided it replaces other purchasing rather than adding to it. The risk is not size; it is that ${(provisions / grossInv * 100).toFixed(0)}% of existing stock is already provided against.`
-                : `If the order is cartons, selling it inside ${lifeMonths} months needs ${fmt(sellPerMonth)} cartons a month on top of, or instead of, today's ${fmt(cartons3)}/month — and July managed ${fmt(sm.jul.cartons)}, the second-lowest volume since February. On current velocity this order does not clear before expiry.`}
+                : `If the order is cartons, selling it inside ${lifeMonths} months needs ${fmt(sellPerMonth)} cartons a month on top of, or instead of, today's ${fmt(cartons3)}/month — and August managed ${fmt(sm.aug.cartons)} against a Jun–Aug average of ${fmt(cartons3)}. On current velocity this order does not clear before expiry.`}
               {" "}Get the unit and the per-carton cost confirmed before the meeting ends.
             </p>
           </Panel>
 
-          <Panel title="Receivables aging" tint={T.sand} subtotal={M(ag.totalOutstanding)} span>
+          <Panel title="Receivables aging" tint={T.sand} hint={`aging report of ${FACTS.agingAsOf} — not refreshed`} subtotal={M(ag.totalOutstanding)} span>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: 18 }}>
               <div>
                 <div style={{ display: "grid", gap: 6 }}>
@@ -193,10 +200,15 @@ export default function Stock() {
                   ))}
                 </div>
                 <p style={{ fontSize: 12.5, color: T.inkSoft, lineHeight: 1.6, margin: "12px 0 0" }}>
-                  Legal cases stand at {fmt(ag.legal)} — fully provided ({fmt(-rec.provisionLegal)}). The general
-                  doubtful provision is {fmt(-rec.provisionDoubtful)} against {fmt(ag.overdue)} overdue. Balance
-                  sheet receivables ({fmt(bsRecTotal)}) run {fmt(agingGap)} above the aging report — small, but
-                  worth a one-line reconciliation from Tayseer.
+                  <b>These buckets are {FACTS.agingAsOf}, a month behind everything else on this page</b> — no
+                  refreshed aging export came with the August pack, so they cannot be reconciled to the{" "}
+                  {FACTS.asOf} balance sheet and are shown for shape, not for amount. What the balance sheet does
+                  say: receivables have risen to {fmt(bsRecTotal)} from {fmt(priorRecTotal)} a month earlier, so the
+                  book grew {fmt(bsRecTotal - priorRecTotal)} while sales fell. Legal cases stand at{" "}
+                  {fmt(rec.legalAction)}, fully provided ({fmt(-rec.provisionLegal)}); the general doubtful provision
+                  has been raised to {fmt(-rec.provisionDoubtful)} from {fmt(-rec.priorProvisionDoubtful)} — August
+                  booked a 41,541 doubtful-debt charge where July had taken a 106,000 credit. Ask for the aging as
+                  of the same date as the balance sheet.
                 </p>
               </div>
               <div>
@@ -214,6 +226,77 @@ export default function Stock() {
                     ))}
                   </tbody>
                 </table>
+              </div>
+            </div>
+          </Panel>
+
+          <Panel title="Where August's cash went" tint={T.loss} hint="August cash flow statement, as Zoho classifies it" span>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: 18 }}>
+              <div>
+                <div style={{ display: "grid", gap: 7 }}>
+                  {(() => {
+                    const rowsCF = [
+                      { l: "Cash at 1 August", v: cash.beginAug, c: T.inkSoft, base: true },
+                      { l: "Operating activities", v: cash.operating, c: T.loss },
+                      { l: "Investing activities", v: cash.investing, c: T.loss },
+                      { l: "Financing — shareholders", v: cash.financing, c: T.profit },
+                      { l: "Cash at 31 August", v: cash.endAug, c: T.inkSoft, base: true },
+                    ];
+                    const mx = Math.max(...rowsCF.map((r) => Math.abs(r.v)), 1);
+                    return rowsCF.map((r) => (
+                      <div key={r.l} style={{ display: "grid", gridTemplateColumns: "175px 1fr 100px", gap: 8, alignItems: "center" }}>
+                        <span style={{ fontSize: 12.5, color: T.inkSoft, fontWeight: r.base ? 600 : 400 }}>{r.l}</span>
+                        <div style={{ height: 14, background: "rgba(26,36,33,0.05)", borderRadius: 3, position: "relative" }}>
+                          <div style={{ position: "absolute", inset: "0 auto 0 0", width: `${(Math.abs(r.v) / mx) * 100}%`, background: r.c, borderRadius: 3, opacity: 0.85 }} />
+                        </div>
+                        <span style={{ fontSize: 12.5, fontWeight: 600, textAlign: "right", fontVariantNumeric: "tabular-nums", color: r.v < 0 ? T.loss : T.ink }}>{fmt(r.v)}</span>
+                      </div>
+                    ));
+                  })()}
+                </div>
+                <p style={{
+                  margin: "14px 0 0", padding: "12px 14px", borderRadius: 9, fontSize: 13, lineHeight: 1.65,
+                  background: "rgba(192,68,46,0.08)", border: "1px solid rgba(192,68,46,0.35)",
+                }}>
+                  <b>The profitable month consumed cash.</b> Operating activities produced {fmt(cash.operating)} — nil.
+                  Investing took {fmt(cash.investing)}, almost all of it working capital: inventory{" "}
+                  {fmt(cash.inventoryBuild)} and receivables {fmt(cash.receivablesBuild)}. Cash still rose{" "}
+                  {fmt(cash.netChange)}, to {fmt(cash.endAug)}, for one reason only: the shareholders put in{" "}
+                  {fmt(cash.financing)}. Strip that and August burned {fmt(cash.netChange - cash.financing)}.
+                </p>
+              </div>
+              <div>
+                <table>
+                  <thead>
+                    <tr><th style={{ minWidth: 200 }}>The four lines that moved it</th><th>SAR</th></tr>
+                  </thead>
+                  <tbody>
+                    {[
+                      ["Shareholder contribution", cash.financing],
+                      ["Inventory build", cash.inventoryBuild],
+                      ["Receivables build", cash.receivablesBuild],
+                      ["Payables paid down", cash.payablesPaidDown],
+                    ].map(([l, v]) => (
+                      <tr key={l} style={{ borderTop: `1px solid ${T.line}` }}>
+                        <td style={{ padding: "7px 8px 7px 0", fontSize: 12.5 }}>{l}</td>
+                        <td style={{ textAlign: "right", fontSize: 12.5, fontWeight: 600, fontVariantNumeric: "tabular-nums", padding: "7px 0 7px 8px", color: v < 0 ? T.loss : T.profit }}>{fmt(v)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                <p style={{ fontSize: 12.5, color: T.inkSoft, lineHeight: 1.6, margin: "14px 0 0" }}>
+                  Cumulative shareholder contributions on the {FACTS.asOf} balance sheet are{" "}
+                  {fmt(cash.shareholderContributionCumulative)} against paid-up capital of{" "}
+                  {fmt(FACTS.balanceSheet.paidUpCapital)} — the business has been funded three times over by its owners
+                  and carries {fmt(FACTS.currentYearEarnings)} of current-year losses against it. Bank and petty cash at{" "}
+                  {FACTS.asOf} total {fmt(cash.bankAtAsOf + cash.pettyCashAtAsOf)}, roughly {fmt(cash.endAug - (cash.bankAtAsOf + cash.pettyCashAtAsOf))}{" "}
+                  below the 31 August close, which is September&rsquo;s burn showing up in the bank.
+                </p>
+                <p style={{ fontSize: 12.5, color: T.inkSoft, lineHeight: 1.6, margin: "10px 0 0" }}>
+                  Note on classification: Zoho puts the inventory and receivables movement under <i>Investing</i>, not
+                  Operating. Read the two together — operating cash on a conventional presentation is roughly{" "}
+                  {fmt(cash.operating + cash.inventoryBuild + cash.receivablesBuild)}.
+                </p>
               </div>
             </div>
           </Panel>

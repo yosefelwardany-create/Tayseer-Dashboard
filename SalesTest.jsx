@@ -1,5 +1,5 @@
 import { useState, useMemo } from "react";
-import { structure, booked, TREATMENTS, AD_RUN_RATE, MGMT_AVG, MGMT_BY_MONTH } from "./finance.js";
+import { structure, booked, TREATMENTS, AD_ACCOUNT, AD_RUN_RATE, MGMT_AVG, MGMT_BY_MONTH, SPAN, releasesIn, total, LISTING_ACCOUNTS, DOUBT_ACCOUNT } from "./finance.js";
 import { MONTHS } from "./data.js";
 import { FACTS } from "./facts.js";
 
@@ -9,8 +9,13 @@ const T = {
   sand: "#B98A3C", blue: "#2F6690",
 };
 
-const BASE = "jul";      // the month they are projecting from
-const REMAINING = 5;     // Aug..Dec
+// August is in. The claim was "5.3M of sales and +100,000 of profit next
+// month", made about August off a July that closed at (1,122,756). August
+// closed at +26,436 on 4.18M of gross sales, so the tab now does two jobs:
+// score the claim against what happened, and re-run the same projection off
+// August instead of July.
+const CLAIM_MONTH = "aug";
+const REMAINING = 12 - MONTHS.length;   // months of 2026 still to close
 
 const fmt = (n) => (n < 0 ? "(" : "") + Math.abs(Math.round(n)).toLocaleString("en-US") + (n < 0 ? ")" : "");
 const M = (n) => (n / 1e6).toFixed(2) + "M";
@@ -35,27 +40,57 @@ function Panel({ title, tint, hint, subtotal, children, span }) {
 }
 
 export default function SalesTest() {
+  const [base, setBase] = useState(CLAIM_MONTH);      // the month the projection stands on
   const [target, setTarget] = useState(5300000);
   const [mode, setMode] = useState("gross");          // is 5.3M gross sales or net revenue?
-  const [returnRate, setReturnRate] = useState(11.5); // July actual
+  const [returnRate, setReturnRate] = useState(4.4);  // August actual
   const [treatment, setTreatment] = useState("trade");
   const [claim, setClaim] = useState(100000);
 
-  // Costs July's closed books carry that need a decision before projecting
+  // Costs the base month's closed books carry that need a decision before projecting
   const [excludeListing, setExcludeListing] = useState(true);
   const [normaliseAd, setNormaliseAd] = useState(true);
   const [normaliseDoubt, setNormaliseDoubt] = useState(true);
+  const [stripReleases, setStripReleases] = useState(true);
   const [useFee, setUseFee] = useState(true);
   const [mgmtFee, setMgmtFee] = useState(150000);
 
   const opts = useMemo(
-    () => ({ treatment, mgmtFee: useFee ? mgmtFee : null, normaliseAd, excludeListing, normaliseDoubt }),
-    [treatment, useFee, mgmtFee, normaliseAd, excludeListing, normaliseDoubt]
+    () => ({ treatment, mgmtFee: useFee ? mgmtFee : null, normaliseAd, excludeListing, normaliseDoubt, stripReleases }),
+    [treatment, useFee, mgmtFee, normaliseAd, excludeListing, normaliseDoubt, stripReleases]
   );
 
-  const s = useMemo(() => structure(BASE, opts), [opts]);
-  const julyBooked = useMemo(() => booked(BASE), []);
-  const julyGross = s.gross;
+  const s = useMemo(() => structure(base, opts), [base, opts]);
+  const baseBooked = useMemo(() => booked(base), [base]);
+  const baseGross = s.gross;
+  const baseLabel = (MONTHS.find((m) => m.key === base) || {}).label || base;
+  const baseShort = (MONTHS.find((m) => m.key === base) || {}).short || base;
+
+  // The scorecard: the claim against August exactly as booked.
+  const score = useMemo(() => {
+    const asBooked = structure(CLAIM_MONTH, {});
+    const claimed = 5300000;
+    const releases = releasesIn(CLAIM_MONTH).reduce((a, x) => a + x.v, 0);
+    return {
+      claimedGross: claimed,
+      actualGross: asBooked.gross,
+      claimedProfit: 100000,
+      actualProfit: booked(CLAIM_MONTH),
+      priorProfit: booked(MONTHS[MONTHS.length - 2].key),
+      priorShort: MONTHS[MONTHS.length - 2].short,
+      releases,
+      underlying: structure(CLAIM_MONTH, { stripReleases: true }).result,
+      breakeven: asBooked.breakeven,
+      net: asBooked.net,
+      cm: asBooked.cm,
+    };
+  }, []);
+
+  const listingBooked = useMemo(() => total(base, (r) => LISTING_ACCOUNTS.includes(r.c)), [base]);
+  const adBooked = useMemo(() => total(base, (r) => r.c === AD_ACCOUNT), [base]);
+  const doubtBooked = useMemo(() => total(base, (r) => r.c === DOUBT_ACCOUNT), [base]);
+  const releaseLines = useMemo(() => releasesIn(base), [base]);
+  const releaseSum = releaseLines.reduce((a, x) => a + x.v, 0);
 
   // Clamp so a stray "100" in the returns box cannot divide the maths to Infinity
   const rr = Math.min(Math.max(returnRate, 0), 95);
@@ -63,28 +98,28 @@ export default function SalesTest() {
   const result = s.profitAt(netTarget);
   const volumeEffect = (netTarget - s.net) * s.cm;
   const grossImplied = mode === "gross" ? target : target / (1 - rr / 100);
-  const salesLift = julyGross ? grossImplied / julyGross - 1 : 0;
+  const salesLift = baseGross ? grossImplied / baseGross - 1 : 0;
 
   const matrix = useMemo(
     () => TREATMENTS.map((t) => {
-      const x = structure(BASE, { ...opts, treatment: t.id });
+      const x = structure(base, { ...opts, treatment: t.id });
       return { ...t, cm: x.cm, breakeven: x.breakeven, forClaim: x.revenueFor(claim), profit: x.profitAt(netTarget) };
     }),
-    [opts, netTarget, claim]
+    [base, opts, netTarget, claim]
   );
 
-  // Seven months of history — the empirical test of "5.3M next month"
+  // Eight months of history — the empirical test of "5.3M next month"
   const history = MONTHS.map((m) => ({ ...FACTS.sales.monthly[m.key], key: m.key, short: m.short }));
   const bestGross = Math.max(...history.map((h) => h.gross));
   const bestMonth = history.find((h) => h.gross === bestGross);
-  const jul = FACTS.sales.monthly.jul;
-  const cartonsNeeded = grossImplied / jul.sarPerCarton;
+  const bm = FACTS.sales.monthly[base];
+  const cartonsNeeded = grossImplied / bm.sarPerCarton;
   const maxHist = Math.max(bestGross, grossImplied);
 
-  const yearEnd = FACTS.ytdJanJul + result * REMAINING;
+  const yearEnd = FACTS.ytdJanAug + result * REMAINING;
 
   const bridge = [
-    { l: "July as closed in their books", v: julyBooked, c: T.inkSoft },
+    { l: `${baseShort} as closed in their books`, v: baseBooked, c: T.inkSoft },
     ...s.adj.map((a) => ({ l: a.label, v: a.amount, c: a.amount < 0 ? T.loss : T.profit })),
     { l: `Extra volume at ${(s.cm * 100).toFixed(1)}% margin`, v: volumeEffect, c: volumeEffect >= 0 ? T.profit : T.loss },
   ];
@@ -141,23 +176,98 @@ export default function SalesTest() {
             Tayseer Trading · Sales projection
           </div>
           <h1 style={{ fontFamily: "'Fraunces', serif", fontSize: 32, fontWeight: 700, margin: "6px 0 0", lineHeight: 1.05 }}>
-            What 5.3M actually produces<span style={{ color: T.sand }}>.</span>
+            They said 5.3M and +100k. August came in<span style={{ color: T.sand }}>.</span>
           </h1>
-          <p style={{ margin: "8px 0 0", fontSize: 14.5, color: T.inkSoft, maxWidth: 700 }}>
-            Built on July as closed in their own books — a loss of {fmt(julyBooked)}, not the {fmt(-295646)} in the
-            earlier export. The one setting that decides the answer is which costs grow when sales grow.
+          <p style={{ margin: "8px 0 0", fontSize: 14.5, color: T.inkSoft, maxWidth: 740 }}>
+            The claim was about August, and August has closed: {M(score.actualGross)} of gross sales, not 5.3M — and a
+            profit of {sign(score.actualProfit)}, not {sign(score.claimedProfit)}. They missed the sales by{" "}
+            {M(score.claimedGross - score.actualGross)} and still turned the corner, which means the projection below
+            was testing the wrong lever. Cost, not sales, did the work. The scorecard is first; the same projection,
+            now rebased on {baseLabel}, is underneath.
           </p>
+          <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 12, flexWrap: "wrap" }}>
+            <span style={{ fontSize: 12, letterSpacing: ".07em", textTransform: "uppercase", color: T.inkSoft, fontWeight: 600 }}>
+              Project from
+            </span>
+            <select value={base} onChange={(e) => setBase(e.target.value)} style={{
+              padding: "6px 10px", borderRadius: 7, fontSize: 13.5, fontWeight: 600, fontFamily: "inherit",
+              border: `1.5px solid ${T.line}`, background: T.card, color: T.ink,
+            }}>
+              {MONTHS.map((m) => <option key={m.key} value={m.key}>{m.label}</option>)}
+            </select>
+          </div>
         </header>
 
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 16 }}>
-          {kpi("Result at this level", sign(result), `against ${fmt(julyBooked)} July closed`, result >= 0 ? T.profit : T.loss)}
-          {kpi("Sales increase implied", (salesLift * 100).toFixed(1) + "%", `${M(grossImplied)} gross vs ${M(julyGross)} July`, salesLift > 0.15 ? T.sand : T.ink)}
+          {kpi("August as booked", sign(score.actualProfit), `${score.priorShort} closed ${fmt(score.priorProfit)}`, score.actualProfit >= 0 ? T.profit : T.loss)}
+          {kpi("August underlying", sign(score.underlying), `strip ${fmt(-score.releases)} of releases`, score.underlying >= 0 ? T.profit : T.loss)}
+          {kpi("Result at this level", sign(result), `${baseShort} basis, cleaned`, result >= 0 ? T.profit : T.loss)}
+          {kpi("Sales increase implied", (salesLift * 100).toFixed(1) + "%", `${M(grossImplied)} gross vs ${M(baseGross)} ${baseShort}`, salesLift > 0.15 ? T.sand : T.ink)}
           {kpi("Vs best month ever", ((grossImplied / bestGross - 1) * 100).toFixed(1) + "%", `${bestMonth.short} did ${M(bestGross)} — the record`, grossImplied > bestGross ? T.loss : T.profit)}
           {kpi(`Needed for ${sign(claim)}`, isFinite(s.revenueFor(claim)) ? M(s.revenueFor(claim)) : "—", "net revenue at these settings", T.sand)}
         </div>
 
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", gap: 14 }}>
-          <Panel title="Has this business ever done 5.3M?" tint={T.blue} hint="seven months of their own sales report" span>
+          <Panel title="The claim against the month it was made about" tint={T.profit} hint="August, as booked" span>
+            <div style={{ overflowX: "auto" }}>
+              <table>
+                <thead>
+                  <tr>
+                    <th style={{ minWidth: 230 }}>&nbsp;</th>
+                    <th>Claimed</th>
+                    <th>August as booked</th>
+                    <th>Miss</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {[
+                    { l: "Gross sales", c: score.claimedGross, a: score.actualGross, money: true },
+                    { l: "Result for the month", c: score.claimedProfit, a: score.actualProfit, money: true },
+                  ].map((r) => (
+                    <tr key={r.l} style={{ borderTop: `1px solid ${T.line}` }}>
+                      <td style={{ padding: "9px 8px 9px 0", fontSize: 13, fontWeight: 600 }}>{r.l}</td>
+                      <td style={{ textAlign: "right", fontSize: 13, padding: "9px 8px", fontVariantNumeric: "tabular-nums" }}>{fmt(r.c)}</td>
+                      <td style={{ textAlign: "right", fontSize: 13, fontWeight: 600, padding: "9px 8px", fontVariantNumeric: "tabular-nums" }}>{fmt(r.a)}</td>
+                      <td style={{ textAlign: "right", fontSize: 13, fontWeight: 600, padding: "9px 0 9px 8px", fontVariantNumeric: "tabular-nums", color: r.a - r.c >= 0 ? T.profit : T.loss }}>
+                        {sign(r.a - r.c)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <p style={{
+              margin: "16px 0 0", padding: "12px 14px", borderRadius: 9, fontSize: 13, lineHeight: 1.65,
+              background: "rgba(29,158,117,0.08)", border: "1px solid rgba(29,158,117,0.35)", color: T.ink,
+            }}>
+              <b>Verdict: right answer, wrong reason.</b> This tab argued that {M(score.claimedGross)} was
+              {" "}{((score.claimedGross / bestGross - 1) * 100).toFixed(0)}% above the best month the company had ever
+              recorded, and it was — August sold {M(score.actualGross)}, {M(score.claimedGross - score.actualGross)} short.
+              The profit arrived anyway, because operating expenses fell from 2,127,557 in {score.priorShort} to 1,363,709,
+              and gross margin went from 26.8% to 35.1% of net revenue. Not one riyal of it came from the sales lift
+              they promised.
+            </p>
+            <p style={{
+              margin: "10px 0 0", padding: "12px 14px", borderRadius: 9, fontSize: 13, lineHeight: 1.65,
+              background: "rgba(185,138,60,0.10)", border: "1px solid rgba(185,138,60,0.40)", color: T.ink,
+            }}>
+              <b>What the +{Math.round(score.actualProfit).toLocaleString("en-US")} rests on.</b> August carries{" "}
+              {fmt(-score.releases)} of provision releases and expense reversals — the near-expiry allowance came back{" "}
+              33,222, fines and penalties 28,818, the Ramadan party accrual 21,000, marine cargo insurance 12,812.
+              Add those back and August is {fmt(score.underlying)}. Advertising was 30,530 against a {SPAN} run rate of{" "}
+              {fmt(AD_RUN_RATE)}; the Al-Ameed listing fee that cost July 273,200 cost August 661. Breakeven at August&rsquo;s
+              own margin is {fmt(score.breakeven)} of net revenue against the {fmt(score.net)} it made — {fmt(score.net - score.breakeven)}{" "}
+              of headroom, or about {((score.net - score.breakeven) / score.net * 100).toFixed(1)}% of a month&rsquo;s sales.
+              One returned container undoes it.
+            </p>
+            <p style={{ fontSize: 12.5, color: T.inkSoft, lineHeight: 1.6, margin: "10px 0 0" }}>
+              And the month after: current-year earnings on the 18 Sep balance sheet run {fmt(FACTS.sepMtd)} below the
+              Jan&ndash;Aug P&amp;L, so the first eighteen days of September have already given the profit back several
+              times over. Ask whether August is the new run rate or a well-timed month.
+            </p>
+          </Panel>
+
+          <Panel title="Has this business ever done 5.3M?" tint={T.blue} hint={`${MONTHS.length} months of their own sales report`} span>
             <div style={{ display: "grid", gap: 6 }}>
               {history.map((h) => (
                 <div key={h.key} style={{ display: "grid", gridTemplateColumns: "40px 1fr 210px", gap: 10, alignItems: "center" }}>
@@ -182,19 +292,21 @@ export default function SalesTest() {
             }}>
               The red line is their target. Gross sales have never exceeded <b>{M(bestGross)}</b> ({bestMonth.short}) —
               the target is {((grossImplied / bestGross - 1) * 100).toFixed(0)}% above the best month in the company&rsquo;s
-              recorded history, from a July that sold <b>{fmt(jul.cartons)} cartons</b>, the second-lowest volume since
-              February and down 16% on June. At July&rsquo;s price mix ({jul.sarPerCarton.toFixed(0)} SAR/carton), {M(grossImplied)} means{" "}
+              recorded history, and {baseShort} sold <b>{fmt(bm.cartons)} cartons</b> at {bm.sarPerCarton.toFixed(0)} SAR
+              per carton. At that price mix, {M(grossImplied)} means{" "}
               <b>{fmt(cartonsNeeded)} cartons</b>
               {(() => {
                 const above = history.filter((h) => h.cartons >= cartonsNeeded);
-                if (above.length === 0) return <> — a carton count never reached in these seven months.</>;
+                if (above.length === 0) return <> — a carton count never reached in these {MONTHS.length} months.</>;
                 return <>
-                  {" "}— reached in {above.map((h) => h.short).join(", ")}, but every time at a much cheaper mix
-                  ({above.map((h) => h.sarPerCarton.toFixed(0)).join(", ")} SAR/carton against July&rsquo;s{" "}
-                  {jul.sarPerCarton.toFixed(0)}).
+                  {" "}— reached in {above.map((h) => h.short).join(", ")}, but every time at a cheaper mix
+                  ({above.map((h) => h.sarPerCarton.toFixed(0)).join(", ")} SAR/carton against {baseShort}&rsquo;s{" "}
+                  {bm.sarPerCarton.toFixed(0)}).
                 </>;
               })()}
-              {" "}Volume is falling while price rises; the target needs record volume and July&rsquo;s premium mix at once.
+              {" "}August did lift volume — 15,958 cartons against July&rsquo;s 14,402 — but at 262 SAR per carton
+              against July&rsquo;s 298, so gross sales still fell. The target needs record volume and a premium mix at once,
+              and August delivered neither.
             </p>
           </Panel>
 
@@ -219,8 +331,10 @@ export default function SalesTest() {
               <span style={{ fontSize: 13, color: T.inkSoft }}>% of gross</span>
             </div>
             <p style={{ fontSize: 12.5, color: T.inkSoft, lineHeight: 1.6, margin: "10px 0 0" }}>
-              July ran returns at {(s.returnRate * 100).toFixed(1)}% of gross — 359,562 of it Nongshim, a 23% return
-              rate on that brand alone. June ran 3.0%. Gross-or-net is worth settling first: the gap between the two
+              {baseShort} ran returns at {(s.returnRate * 100).toFixed(1)}% of gross. July ran 11.5% — 359,562 of it
+              Nongshim, a 23% return rate on that brand alone — and August came down to 4.4%, with Nongshim returns
+              falling from 359,562 to 86,677. That single line is worth roughly 273,000 a month and is the most
+              durable-looking part of the improvement. Gross-or-net is still worth settling: the gap between the two
               readings of &ldquo;5.3M&rdquo; is {M(target / (1 - rr / 100) - target)} of sales.
             </p>
           </Panel>
@@ -247,29 +361,37 @@ export default function SalesTest() {
             <div style={{ fontSize: 11.5, color: "#9AA49D", marginTop: 8 }}>Contribution margin on the right</div>
           </Panel>
 
-          <Panel title="July, cleaned for projection" tint={T.sand} hint="what closed July carries that a run rate should not">
+          <Panel title={`${baseLabel}, cleaned for projection`} tint={T.sand} hint={`what closed ${baseShort} carries that a run rate should not`}>
             <div style={{ display: "grid", gap: 4 }}>
+              {toggleRow(stripReleases, () => setStripReleases((v) => !v),
+                "Add back provision releases and reversals",
+                releaseLines.length
+                  ? `${baseShort} booked ${releaseLines.length} credit line${releaseLines.length > 1 ? "s" : ""} — money coming back, not cost avoided`
+                  : `${baseShort} booked none`,
+                <span style={{ textAlign: "right", fontSize: 13, color: T.inkSoft, fontVariantNumeric: "tabular-nums" }}>{fmt(-releaseSum)}</span>)}
               {toggleRow(excludeListing, () => setExcludeListing((v) => !v),
-                "Al-Ameed listing fee is one-time", "273,200 booked in July — registration, not a monthly cost",
-                <span style={{ textAlign: "right", fontSize: 13, color: T.inkSoft, fontVariantNumeric: "tabular-nums" }}>273,200</span>)}
+                "One-time listing & registration fees", "Al-Ameed registration plus key-account branch-opening fees — not a monthly cost",
+                <span style={{ textAlign: "right", fontSize: 13, color: T.inkSoft, fontVariantNumeric: "tabular-nums" }}>{fmt(listingBooked)}</span>)}
               {toggleRow(normaliseAd, () => setNormaliseAd((v) => !v),
-                "Advertising at the year's run rate", `July booked 456,323; Jan–Jul averages ${fmt(AD_RUN_RATE)}`,
+                "Advertising at the year's run rate", `${baseShort} booked ${fmt(adBooked)}; ${SPAN} averages ${fmt(AD_RUN_RATE)}`,
                 <span style={{ textAlign: "right", fontSize: 13, color: T.inkSoft, fontVariantNumeric: "tabular-nums" }}>{fmt(AD_RUN_RATE)}</span>)}
               {toggleRow(normaliseDoubt, () => setNormaliseDoubt((v) => !v),
-                "Remove July's doubtful-debt credit", "A 106,000 release flattered the month; run rate is a charge, not a credit",
-                <span style={{ textAlign: "right", fontSize: 13, color: T.inkSoft, fontVariantNumeric: "tabular-nums" }}>106,000</span>)}
+                "Doubtful debts at nil", `${baseShort} booked ${fmt(doubtBooked)} — July was a 106,000 credit, August a 41,541 charge; neither is a run rate`,
+                <span style={{ textAlign: "right", fontSize: 13, color: T.inkSoft, fontVariantNumeric: "tabular-nums" }}>{fmt(Math.abs(doubtBooked))}</span>)}
               {toggleRow(useFee, () => setUseFee((v) => !v),
-                "Management fee going forward", `July booked ${fmt(MGMT_BY_MONTH.jul)}; Jan–Jul averaged ${fmt(MGMT_AVG)}; they claim 150,000`,
+                "Management fee going forward", `${baseShort} booked ${fmt(MGMT_BY_MONTH[base])}; ${SPAN} averaged ${fmt(MGMT_AVG)}; they claim 150,000`,
                 <input type="number" value={mgmtFee} step={10000} onChange={(e) => setMgmtFee(+e.target.value || 0)}
                   disabled={!useFee} style={{ ...numStyle, width: 118, opacity: useFee ? 1 : 0.45 }} />)}
             </div>
             <p style={{ fontSize: 12.5, color: T.inkSoft, lineHeight: 1.6, margin: "12px 0 0" }}>
-              These settings define the July the projection stands on. Every one of them is arguable — that is why
-              they are switches and not assumptions.
+              These settings define the {baseShort} the projection stands on. Every one of them is arguable — that is why
+              they are switches and not assumptions. On August the first two matter most: the releases are the
+              difference between a profit and {fmt(score.underlying)}, and advertising at the run rate is another{" "}
+              {fmt(AD_RUN_RATE - adBooked)} of cost the month never carried.
             </p>
           </Panel>
 
-          <Panel title="From July to the projection" tint={T.ink} subtotal={sign(result)} hint="every step, in order">
+          <Panel title={`From ${baseShort} to the projection`} tint={T.ink} subtotal={sign(result)} hint="every step, in order">
             <div style={{ display: "grid", gap: 7 }}>
               {bridge.map((b, i) => (
                 <div key={i} style={{ display: "grid", gridTemplateColumns: "190px 1fr 90px", gap: 8, alignItems: "center" }}>
@@ -287,11 +409,11 @@ export default function SalesTest() {
                 </span>
               </div>
               <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12.5, color: T.inkSoft, marginTop: 2 }}>
-                <span>August to December at this level ({REMAINING} months)</span>
+                <span>{MONTHS.length < 12 ? `${["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"][MONTHS.length]} to December at this level (${REMAINING} months)` : "No months left to close"}</span>
                 <span style={{ fontVariantNumeric: "tabular-nums", fontWeight: 600, color: result >= 0 ? T.profit : T.loss }}>{sign(result * REMAINING)}</span>
               </div>
               <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12.5, color: T.inkSoft }}>
-                <span>Implied full-year result (YTD {fmt(FACTS.ytdJanJul)} + five months)</span>
+                <span>Implied full-year result (YTD {fmt(FACTS.ytdJanAug)} + {REMAINING} months)</span>
                 <span style={{ fontVariantNumeric: "tabular-nums", fontWeight: 700, color: yearEnd >= 0 ? T.profit : T.loss }}>{fmt(yearEnd)}</span>
               </div>
             </div>
@@ -336,7 +458,9 @@ export default function SalesTest() {
               {fmt(Math.max(...matrix.filter((x) => isFinite(x.forClaim)).map((x) => x.forClaim)))} of net revenue depending only
               on which costs are held flat — and even the smallest of those figures has never been achieved in this
               company&rsquo;s recorded history. Ask which of freight, warehouse labour, casual labour, rebates and
-              commissions they expect to stay unchanged through a 25% sales rise.
+              commissions they expect to stay unchanged through a 25% sales rise — August is evidence on that too:
+              sales fell 2.8% on July while Variable Selling fell 51% and Outsourcing 27%, which is the opposite of
+              a variable cost base and points at the one-off lines, not at volume.
             </p>
           </Panel>
         </div>

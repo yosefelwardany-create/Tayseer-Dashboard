@@ -1,11 +1,18 @@
 # Regenerates data.js and facts.js from fresh Zoho Books exports.
 #
 #   python tools/rebuild_data.py \
-#       --pl "Profit and Loss - JAN2026-AUG2026.xlsx" \
-#       --bs "Balance Sheet - 17-09-2026.xlsx" \
-#       --aging "Aging by Customer - as of 17-09-2026.xlsx" \
+#       --pl "Profit and Loss - JAN2026-SEP2026.xlsx" \
+#       --bs "Balance Sheet - 18-09-2026.xlsx" \
+#       --aging "Aging by Customer - as of 18-09-2026.xlsx" \
 #       --sales "MONTHLY-Sales by Item.xlsx" \
-#       --months jan feb mar apr may jun jul aug
+#       --months jan feb mar apr may jun jul aug sep
+#
+# A SINGLE-MONTH export parses too: Zoho's one-month P&L has the same
+# name / code / value column shape, so `--months aug` against
+# "Profit and Loss - Aug 2026.xlsx" works. That is how August 2026 was added.
+# This script rewrites the whole file, so merging one month into the existing
+# Jan-Jul figures is a separate step -- read the current BASELINE, attach the
+# new month's value per account code, then re-emit.
 #
 # Export settings that matter (Zoho Books):
 #   P&L:   Reports > Business Overview > Horizontal Profit and Loss, MONTHLY interval,
@@ -20,6 +27,9 @@
 #     (65900010, 61502330, 65410000...) — they must be KEPT or the P&L stops
 #     tying to current-year earnings on the balance sheet
 #   - some account names carry U+FFFD garbage from a bad import on Zoho's side
+#   - a month can introduce accounts that never posted before (August 2026
+#     brought nine). They need a group, and they carry 0.00 for the earlier
+#     months -- that is correct, not a gap
 #
 # legacy.js is a frozen snapshot of the 10 Aug 2026 export — never regenerated.
 # New OPEX accounts not seen before are reported and must be added to GROUP_MAP.
@@ -54,6 +64,7 @@ FLAGS = {
     "70900102": "Fines & penalties — customs",
     "70900103": "Fines & penalties — traffic",
     "65410002": "Al-Ameed listing & registration — confirm if one-time onboarding",
+    "65410004": "Key-account new-branch opening fee — one-time by its own name",
     "65410000": "Listing fees booked June, reversed July — nets to nil",
     "65900011": "Write-off (expiry/damage, Nongshim) — lumpy",
     "65900010": "Write-off (expiry/damage, finished goods) — non-cash",

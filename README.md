@@ -1,16 +1,48 @@
 # Tayseer Trading — P&L
 
 Six views of the same business, one deployment. Basis: the **17 Aug 2026 Zoho
-Books ledger export, January to July 2026** — one source for every month, and it
-is Tayseer's own system, so top and bottom line tie to their P&L by construction.
+Books ledger export (Jan–Jul 2026)** plus the **18 Sep 2026 export (Aug 2026)** —
+same accrual basis, same chart of accounts, and it is Tayseer's own system, so
+top and bottom line tie to their P&L by construction.
+
+## August 2026, in short
+
+August is the **first profitable month of the year: +26,436**, after seven losses
+totalling (10,004,412). The August cash flow statement carries Net Income of
+26,436.22 — the same figure the P&L produces — and the 18 Sep balance sheet
+balances to nil, so the three statements agree.
+
+What the dashboard says about it:
+
+- **Cost did it, not sales.** Gross sales *fell* (4,298,345 → 4,179,656). Operating
+  expenses fell 763,849 to 1,363,709 — 948,407 below the Jan–Jul average — and gross
+  margin went 26.8% → 35.1% of net revenue.
+- **About 104,000 is credits coming back**: the near-expiry allowance (33,222), fines
+  and penalties (28,818), the Ramadan party accrual (21,000), marine cargo insurance
+  (12,812), an exchange gain and two travel reversals. Add them back and August is
+  (77,201). The Sales projection tab has this as a switch (`stripReleases`).
+- **Advertising was 30,530** against a Jan–Aug run rate of 324,173, and the Al-Ameed
+  listing fee that cost July 273,200 cost August 661.
+- **Breakeven leaves 102,040 of headroom** — 2.6% of a month's sales.
+- **Returns are the durable improvement**: 4.4% of gross against July's 11.5%, with
+  Nongshim falling from 359,562 to 86,677. Operational, not accounting.
+- **The profit was funded, not earned in cash.** Operating cash flow was (12,441);
+  inventory grew 1,155,893 and receivables 662,494; cash rose only because the
+  shareholders put in another 2,340,484 (15,329,802 cumulative).
+- **September has already given it back.** Current-year earnings on the 18 Sep balance
+  sheet run (602,341) below the Jan–Aug P&L — eighteen days at roughly a million a month.
+
+Nine accounts appear for the first time in August (marketing agency fees, the
+split-out listing-fee accounts, office supplies, meeting-room fees and so on).
+They carry zero for Jan–Jul because they were not posted then.
 
 | Tab | What it does |
 |---|---|
-| **Monthly P&L** | Any month against any other, Jan–Jul 2026. Every account figure is editable: click a number, type a new one, and the KPIs, bridge, group charts and the underlying result all recalculate. Includes the **Statement layout** editor (below). |
+| **Monthly P&L** | Any month against any other, Jan–Aug 2026. Opens on Aug against Jul. Every account figure is editable: click a number, type a new one, and the KPIs, bridge, group charts and the underlying result all recalculate. Includes the **Statement layout** editor (below). |
 | **Restatement** | The 10 Aug export against the 17 Aug export, month by month. July moved from (295,646) to (1,122,756) between the two — the tab shows exactly which accounts were booked in between. |
-| **Sales projection** | Tests the "5.3M and +100k profit" claim against July's closed cost structure, seven months of sales history (best month ever: May, 4.48M gross), and carton volume. The deciding assumption — which costs grow with sales — is a control, not a buried constant. |
-| **Payroll** | Tests the "it was one-time costs" explanation across seven months. Tick whichever lines are claimed non-recurring; whatever is left is what turns up again next month. |
-| **Stock & receivables** | The 17 Aug balance sheet and AR aging: inventory cover and provisions, the 400,000 + 100,000 order calculator (SAR vs cartons — the unit changes the verdict entirely), aging buckets and the largest debtors. |
+| **Sales projection** | Scores the "5.3M and +100k profit" claim against the month it was made about: August delivered 4.18M of gross sales and +26,436. Then re-runs the same projection off any base month, with eight months of sales history (best month ever: May, 4.48M gross) and carton volume. The deciding assumption — which costs grow with sales — is a control, not a buried constant. |
+| **Payroll** | Tests the "it was one-time costs" explanation across eight months. Tick whichever lines are claimed non-recurring; whatever is left is what turns up again next month. |
+| **Stock & receivables** | The 18 Sep balance sheet and the August cash flow: inventory cover and provisions, where August's cash actually went, the 400,000 + 100,000 order calculator (SAR vs cartons — the unit changes the verdict entirely), aging buckets and the largest debtors. The aging report is still the 17 Aug one and the tab says so. |
 | **P&L control room** | Forward-looking scenario sliders. Pick any month as the baseline and every lever rebases on that month's actuals, derived account by account — the Actuals preset reproduces the real result to the riyal. |
 
 ## Statement layout
@@ -39,15 +71,16 @@ version, and "Save changes" overwrites it for everyone.
 
 Pick the two months at the top. **Swap** reverses the direction. **Sort** reorders the
 expense groups and the lines inside them by statement order, biggest change, biggest amount,
-or name. Add a month (e.g. August, when it closes) by appending a key to `MONTHS` and the
+or name. Add a month (e.g. September, when it closes) by appending a key to `MONTHS` and the
 matching field to every row in `data.js` — nothing else needs touching.
 
 ### Sources and the restatement
 
-All seven months come from one file: the Zoho ledger export of 17 Aug 2026, leaf accounts
-plus parent accounts' own postings (Zoho parents can carry both — dropping them breaks the
-tie to the balance sheet). Jan–Jul results sum to (10,004,412); current-year earnings on
-the 17 Aug balance sheet are (10,049,454); the (45,043) difference is 1–17 August.
+Jan–Jul come from the Zoho ledger export of 17 Aug 2026 and August from the 18 Sep 2026
+export — both accrual, leaf accounts plus parent accounts' own postings (Zoho parents can
+carry both — dropping them breaks the tie to the balance sheet). Jan–Aug results sum to
+(9,977,975); current-year earnings on the 18 Sep balance sheet are (10,580,317); the
+(602,341) difference is 1–18 September.
 
 The previous build (10 Aug export, May restated from the audited pack) is preserved
 verbatim in `legacy.js` and drives the Restatement tab. Regenerate everything from fresh
@@ -125,14 +158,14 @@ Nothing to create by hand — each row is inserted the first time you press Save
 ## Files
 
 ```
-data.js           Jan–Jul 2026 figures plus the MONTHS list — generated from the 17 Aug Zoho export
+data.js           Jan–Aug 2026 figures plus the MONTHS list — 17 Aug export (Jan–Jul) + 18 Sep export (Aug)
 legacy.js         The 10 Aug baseline, verbatim — drives the Restatement tab. Do not edit.
-facts.js          Balance sheet, AR aging and sales-by-item facts — generated alongside data.js
+facts.js          Balance sheet, August cash flow, AR aging and sales-by-item facts
 layout.js         Which header each account sits under; presets and the totals-agree check
 finance.js        Variable/fixed cost split and the payroll scope, shared by the analysis tabs
 JulyBrief.jsx     The Monthly P&L: month picker, sorting, editable figures, statement layout
 Restatement.jsx   10 Aug export vs 17 Aug export, month by month
-SalesTest.jsx     The sales projection test, with seven months of sales history
+SalesTest.jsx     The claim scorecard and the sales projection, with eight months of sales history
 PayrollBridge.jsx The payroll one-time test
 Stock.jsx         Inventory, the new-order calculator, receivables aging
 ControlRoom.jsx   The scenario sliders, rebased on any month

@@ -17,7 +17,9 @@ const T = {
 // real result to the riyal.
 // ------------------------------------------------------------------
 // Buckets are keyed on account CODES: the 17 Aug export renamed and renumbered
-// several accounts, and codes are the stable spine.
+// several accounts, and codes are the stable spine. The nine accounts that
+// first appear in August fall through to the G&A bucket by group, which is
+// where they belong — none of them is a lever of its own.
 const COST_OF_SALES = (c) => c.startsWith("503000");
 const DISCOUNT_CODES = new Set([
   "61502312",             // credit notes / debit memos
@@ -89,6 +91,10 @@ function actualResult(month) {
   return (net - sum((r) => r.s === "COGS") - sum((r) => r.s === "OPEX")
           + sum((r) => r.s === "NOI") - sum((r) => r.s === "NOE")) / 1000;
 }
+
+// Cost buckets can net to a credit (August's fines and near-expiry lines both
+// came back), so the panel subtotals sign themselves rather than assuming a cost.
+const costK = (x) => (x >= 0 ? "−" : "+") + Math.abs(Math.round(x)) + "K";
 
 const presetsFor = (month) => {
   const base = deriveFrom(month);
@@ -165,8 +171,8 @@ function RiyalStrip({ cogs, give, kept }) {
 // App
 // ------------------------------------------------------------------
 export default function ControlRoom() {
-  const [month, setMonth] = useState("jul");
-  const [s, setS] = useState(() => deriveFrom("jul"));
+  const [month, setMonth] = useState("aug");
+  const [s, setS] = useState(() => deriveFrom("aug"));
   const set = (k) => (v) => setS((p) => ({ ...p, [k]: v }));
 
   const PRESETS = useMemo(() => presetsFor(month), [month]);
@@ -363,31 +369,31 @@ export default function ControlRoom() {
             <Lever label="Sales returns" value={s.returns} set={set("returns")} min={0} max={headroom(12, s.returns)} step={0.1} note="healthy 2–3" accent={T.blue} />
           </Panel>
 
-          <Panel title="Product cost" tint={T.inkSoft} subtotal={`−${Math.round(r.cogsV)}K`}>
+          <Panel title="Product cost" tint={T.inkSoft} subtotal={costK(r.cogsV)}>
             <Lever label="True COGS, % of net revenue" value={s.cogs} set={set("cogs")} min={40} max={headroom(75, s.cogs)} step={0.1} note="cost of sales only" accent={T.inkSoft} />
           </Panel>
 
-          <Panel title="Trade spend" tint={T.loss} subtotal={`${r.tradePct.toFixed(1)}% · −${Math.round(r.tradeV)}K`}>
+          <Panel title="Trade spend" tint={T.loss} subtotal={`${r.tradePct.toFixed(1)}% · ${costK(r.tradeV)}`}>
             <Lever label="Discounts, rebates & LIQ" value={s.discounts} set={set("discounts")} min={0} max={headroom(20, s.discounts)} step={0.1} accent={T.loss} />
             <Lever label="Promotions & QTY deals" value={s.promos} set={set("promos")} min={0} max={headroom(16, s.promos)} step={0.1} accent={T.loss} />
             <Lever label="Advertising & marketing" value={s.advertising} set={set("advertising")} min={0} max={headroom(16, s.advertising)} step={0.1} accent={T.loss} />
             <Lever label="Commissions & merchandising" value={s.commissions} set={set("commissions")} min={0} max={headroom(6, s.commissions)} step={0.1} accent={T.loss} />
           </Panel>
 
-          <Panel title="Waste & credit" tint={T.loss} subtotal={`−${Math.round(r.discardV + s.badDebt + s.fines)}K`}>
+          <Panel title="Waste & credit" tint={T.loss} subtotal={costK(r.discardV + s.badDebt + s.fines)}>
             <Lever label="Discards: expiry, write-offs, RTV" value={s.discards} set={set("discards")} min={0} max={headroom(8, s.discards)} step={0.1} accent={T.loss} />
             <Lever label="Doubtful debts" value={s.badDebt} set={set("badDebt")} min={0} max={headroom(150, s.badDebt)} step={1} unit="K" accent={T.loss} />
             <Lever label="Fines & penalties" value={s.fines} set={set("fines")} min={0} max={headroom(60, s.fines)} step={1} unit="K" accent={T.loss} />
           </Panel>
 
-          <Panel title="Operations" tint={T.sand} subtotal={`−${Math.round(r.ops)}K`}>
+          <Panel title="Operations" tint={T.sand} subtotal={costK(r.ops)}>
             <Lever label="Warehouse: labour, rent, handling" value={s.warehouse} set={set("warehouse")} min={0} max={headroom(400, s.warehouse)} step={1} unit="K" accent={T.sand} />
             <Lever label="Sales team payroll" value={s.salesPay} set={set("salesPay")} min={0} max={headroom(400, s.salesPay)} step={1} unit="K" accent={T.sand} />
             <Lever label="Vans & fleet" value={s.fleet} set={set("fleet")} min={0} max={headroom(200, s.fleet)} step={1} unit="K" accent={T.sand} />
             <Lever label="Outward freight" value={s.freight} set={set("freight")} min={0} max={headroom(80, s.freight)} step={1} unit="K" accent={T.sand} />
           </Panel>
 
-          <Panel title="Overheads" tint={T.sand} subtotal={`−${Math.round(s.mgmtFee + s.gna)}K`}>
+          <Panel title="Overheads" tint={T.sand} subtotal={costK(s.mgmtFee + s.gna)}>
             <Lever label="Management fees" value={s.mgmtFee} set={set("mgmtFee")} min={0} max={headroom(800, s.mgmtFee)} step={1} unit="K" accent={T.sand} />
             <Lever label="G&A payroll, rent, admin" value={s.gna} set={set("gna")} min={0} max={headroom(600, s.gna)} step={5} unit="K" note="lean floor ≈ 70" accent={T.sand} />
           </Panel>
@@ -440,7 +446,7 @@ export default function ControlRoom() {
           Levers are derived from {monthLabel} account by account: every line in the statement lands in exactly one lever, so the
           Actuals preset reproduces that month&rsquo;s real result to the riyal. Switching the baseline month rebases every lever and
           discards unsaved lever changes. Breakeven revenue assumes the base-basket margin structure and treats anchor contribution
-          as an offset to the fixed base. All seven months come from the 17 Aug 2026 Zoho ledger export — one source, one basis.
+          as an offset to the fixed base. Jan–Jul come from the 17 Aug 2026 Zoho ledger export and August from the 18 Sep one — same basis, same chart of accounts. August is the first month whose actuals start from a profit, so the levers now measure how easily it is given back.
         </p>
       </div>
     </div>
