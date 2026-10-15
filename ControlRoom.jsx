@@ -17,9 +17,12 @@ const T = {
 // real result to the riyal.
 // ------------------------------------------------------------------
 // Buckets are keyed on account CODES: the 17 Aug export renamed and renumbered
-// several accounts, and codes are the stable spine. The nine accounts that
-// first appear in August fall through to the G&A bucket by group, which is
-// where they belong — none of them is a lever of its own.
+// several accounts, and codes are the stable spine. September re-cut the
+// returns accounts into two channels and moved advertising into sell-out
+// subaccounts; both still match the prefixes below, so no lever changed
+// meaning. Accounts that appear for the first time in August or September
+// fall through to a bucket by their group, which is where they belong —
+// none of them is a lever of its own.
 const COST_OF_SALES = (c) => c.startsWith("503000");
 const DISCOUNT_CODES = new Set([
   "61502312",             // credit notes / debit memos
@@ -27,7 +30,8 @@ const DISCOUNT_CODES = new Set([
   "61502310", "61502311", // price discounts
   "61502330", "61502332", // cash discount 3% (incl. Al-Ameed)
 ]);
-const REBATE_CODES = new Set(["61502341", "61502355"]); // MT rebate, progressive rebate (OPEX)
+// MT rebate (split by brand from September), progressive rebate — all OPEX.
+const REBATE_CODES = new Set(["61502341", "61502342", "61502343", "61502355"]);
 const PROMO_CODES = new Set(["61502300", "61502305", "61502308"]);
 const COMMISSION_CODES = new Set(["61500000", "61500001", "61502304"]); // sales staff, drivers, merchandising
 const DISCARD_CODES = new Set(["65900030", "65900010", "65900011"]);    // near-expiry, write-offs
@@ -171,8 +175,8 @@ function RiyalStrip({ cogs, give, kept }) {
 // App
 // ------------------------------------------------------------------
 export default function ControlRoom() {
-  const [month, setMonth] = useState("aug");
-  const [s, setS] = useState(() => deriveFrom("aug"));
+  const [month, setMonth] = useState("sep");
+  const [s, setS] = useState(() => deriveFrom("sep"));
   const set = (k) => (v) => setS((p) => ({ ...p, [k]: v }));
 
   const PRESETS = useMemo(() => presetsFor(month), [month]);
@@ -446,7 +450,7 @@ export default function ControlRoom() {
           Levers are derived from {monthLabel} account by account: every line in the statement lands in exactly one lever, so the
           Actuals preset reproduces that month&rsquo;s real result to the riyal. Switching the baseline month rebases every lever and
           discards unsaved lever changes. Breakeven revenue assumes the base-basket margin structure and treats anchor contribution
-          as an offset to the fixed base. Jan–Jul come from the 17 Aug 2026 Zoho ledger export and August from the 18 Sep one — same basis, same chart of accounts. August is the first month whose actuals start from a profit, so the levers now measure how easily it is given back.
+          as an offset to the fixed base. Jan–Jul come from the 17 Aug 2026 Zoho ledger export, August from the 18 Sep one and September from the 15 Oct one — same accrual basis throughout. August and September both start from a profit, so the levers now measure how easily it is given back. Note that September&rsquo;s management-fee lever starts at nil, because that is what the month booked: pull it back to 150 and watch the result.
         </p>
       </div>
     </div>

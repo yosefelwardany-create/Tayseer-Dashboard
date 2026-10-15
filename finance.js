@@ -3,15 +3,18 @@
 // arguments below are about the cost base Tayseer actually reported, so
 // normalising it silently would defeat the purpose.
 //
-// Basis: the Zoho ledger exports of 17 Aug 2026 (Jan–Jul) and 18 Sep 2026
-// (Aug), same chart of accounts. Revenue and returns are channel subaccounts
-// (41000001-3 gross, 41001001-3 returns).
+// Basis: the Zoho ledger exports of 17 Aug 2026 (Jan–Jul), 18 Sep 2026 (Aug)
+// and 15 Oct 2026 (Sep). Gross revenue is channel subaccounts 41000001-3;
+// returns are everything under 41001, which from September is two channels
+// (B: 41001101/103, G: 41001201/202/203) instead of one (41001001/2/3).
+// Matching on the 41001 prefix is what makes that re-cut invisible here.
 //
-// August is the first profitable month of the year (+26,436), so the levers
-// below now cut both ways: `stripReleases` exists because August's result
-// leans on roughly 104,000 of provision releases and expense reversals that
-// do not recur, and `normaliseAd` matters more than ever because August
-// booked 30,530 of advertising against a run rate above 320,000.
+// August and September are the first two profitable months of the year
+// (+26,436 and +141,189), so the levers below now cut both ways:
+// `stripReleases` exists because both months lean on provision releases and
+// credits that do not recur (104,000 in August, 168,000 in September), and
+// the management-fee lever matters most of all: September books the fee at
+// NIL, against 144,339 to 354,856 in every other month.
 
 import { BASELINE, MONTHS } from "./data.js";
 
@@ -50,7 +53,18 @@ export const TREATMENTS = [
   },
 ];
 
-export const AD_ACCOUNT = "65100120";      // Advertising & Promotions
+// Advertising & promotions. 65100120 carried the spend through August; in
+// September it became a parent with no postings of its own and the spend
+// moved into KA/EC sell-out subaccounts, net of a Nongshim BTL refund.
+// The lever has to read the whole family or September looks like nil spend.
+export const AD_ACCOUNTS = [
+  "65100120",  // Advertising & Promotions expenses (through Aug)
+  "65100121",  // KA - Sell-out Promotion (Nongshim)
+  "65100122",  // EC - Sell-out Promotion (Nongshim)
+  "65100126",  // EC - Sell-out Promotion (Others)
+  "651001211", // Nongshim BTL refund — a credit against the above
+];
+export const AD_ACCOUNT = AD_ACCOUNTS[0];  // kept for older callers
 export const MGMT_ACCOUNT = "63003000";    // Management Fees
 export const DOUBT_ACCOUNT = "65100100";   // Doubtful debts: Jul a -106,000 credit, Aug a +41,541 charge
 
@@ -75,17 +89,23 @@ export const RELEASE_ACCOUNTS = [
   "72020000", // Exchange gain or loss
   "61201000", // Travelling expenses ~ tickets inside country
   "61202000", // Travelling expenses ~ tickets outside country
+  "65105001", // Other expense
 ];
+// 651001211 (Nongshim BTL refund) is deliberately NOT here: it is already
+// inside AD_ACCOUNTS, so stripping it as a release and then normalising
+// advertising would count the same 65,716 twice.
 
 const monthKeys = MONTHS.map((m) => m.key);
 export const SPAN = `${MONTHS[0].short}–${MONTHS[MONTHS.length - 1].short}`;
 
 // Advertising runs 31k-1,041k a month; the honest run rate is the year's average.
 export const AD_RUN_RATE =
-  monthKeys.reduce((a, m) => a + total(m, (r) => r.c === AD_ACCOUNT), 0) / monthKeys.length;
+  monthKeys.reduce((a, m) => a + total(m, (r) => AD_ACCOUNTS.includes(r.c)), 0) / monthKeys.length;
 
-// Management fee: 278k-355k a month until July's 144,339 and August's 157,694 —
-// the two together average 151,016, which is the 150,000 they claimed.
+// Management fee: 278k-355k a month, then July 144,339, August 157,694 and
+// September NIL. Two months near the claimed 150,000 followed by a month that
+// books nothing is the single largest open question on these statements —
+// the missing fee is bigger than September's whole profit.
 export const MGMT_BY_MONTH = Object.fromEntries(
   monthKeys.map((m) => [m, total(m, (r) => r.c === MGMT_ACCOUNT)])
 );
@@ -138,7 +158,7 @@ export function structure(month, opts = {}) {
       shift(BASELINE.find((r) => r.c === LISTING_ACCOUNTS[0]), -booked, "One-time listing & registration fees set aside");
   }
   if (normaliseAd) {
-    const booked = total(month, (r) => r.c === AD_ACCOUNT);
+    const booked = total(month, (r) => AD_ACCOUNTS.includes(r.c));
     shift(null, AD_RUN_RATE - booked, `Advertising at the ${SPAN} run rate`);
   }
   if (normaliseDoubt) {

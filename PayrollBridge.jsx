@@ -33,8 +33,8 @@ function Panel({ title, tint, hint, subtotal, children, span }) {
 
 export default function PayrollBridge() {
   const [oneTime, setOneTime] = useState(DEFAULT_ONE_TIME);
-  const [mA, setMA] = useState("jul");
-  const [mB, setMB] = useState("aug");
+  const [mA, setMA] = useState("aug");
+  const [mB, setMB] = useState("sep");
 
   const toggle = (code) =>
     setOneTime((p) => (p.includes(code) ? p.filter((c) => c !== code) : [...p, code]));

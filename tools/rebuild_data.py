@@ -5,11 +5,12 @@
 #       --bs "Balance Sheet - 18-09-2026.xlsx" \
 #       --aging "Aging by Customer - as of 18-09-2026.xlsx" \
 #       --sales "MONTHLY-Sales by Item.xlsx" \
-#       --months jan feb mar apr may jun jul aug sep
+#       --months jan feb mar apr may jun jul aug sep oct
 #
 # A SINGLE-MONTH export parses too: Zoho's one-month P&L has the same
 # name / code / value column shape, so `--months aug` against
-# "Profit and Loss - Aug 2026.xlsx" works. That is how August 2026 was added.
+# "Profit and Loss - Aug 2026.xlsx" works. That is how August and September
+# 2026 were added.
 # This script rewrites the whole file, so merging one month into the existing
 # Jan-Jul figures is a separate step -- read the current BASELINE, attach the
 # new month's value per account code, then re-emit.
@@ -28,8 +29,18 @@
 #     tying to current-year earnings on the balance sheet
 #   - some account names carry U+FFFD garbage from a bad import on Zoho's side
 #   - a month can introduce accounts that never posted before (August 2026
-#     brought nine). They need a group, and they carry 0.00 for the earlier
-#     months -- that is correct, not a gap
+#     brought nine, September eighteen). They need a group, and they carry
+#     0.00 for the earlier months -- that is correct, not a gap
+#   - Tayseer also RE-CUT live accounts mid-year. September split sales returns
+#     from 41001001/2/3 into two channels (41001101/103 and 41001201/202/203),
+#     and moved advertising spend out of 65100120 into KA/EC sell-out
+#     subaccounts plus a BTL refund (651001211). Both old and new codes have to
+#     stay in the file, each carrying only the months it was posted in. Code
+#     PREFIXES, not exact codes, are what the app matches on for returns
+#     (41001) and freight (654000) -- keep it that way or a re-cut silently
+#     drops a line from a total. Anything matched on an exact code (the
+#     advertising family in finance.js, the rebate codes in ControlRoom.jsx)
+#     must be reviewed by hand whenever a new month arrives.
 #
 # legacy.js is a frozen snapshot of the 10 Aug 2026 export — never regenerated.
 # New OPEX accounts not seen before are reported and must be added to GROUP_MAP.
@@ -65,6 +76,8 @@ FLAGS = {
     "70900103": "Fines & penalties — traffic",
     "65410002": "Al-Ameed listing & registration — confirm if one-time onboarding",
     "65410004": "Key-account new-branch opening fee — one-time by its own name",
+    "70900105": "Fines & penalties — government & authorities",
+    "651001211": "Nongshim BTL refund — a credit, not cost avoided",
     "65410000": "Listing fees booked June, reversed July — nets to nil",
     "65900011": "Write-off (expiry/damage, Nongshim) — lumpy",
     "65900010": "Write-off (expiry/damage, finished goods) — non-cash",
